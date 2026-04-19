@@ -1,9 +1,7 @@
+import { BookshelfScene } from '@/features/bookshelf/bookshelf-scene'
+
 function App() {
-  return (
-    <div className="flex min-h-screen items-center justify-center">
-      <h1 className="text-2xl font-bold">tech-moongo</h1>
-    </div>
-  )
+  return <BookshelfScene />
 }
 
 export default App

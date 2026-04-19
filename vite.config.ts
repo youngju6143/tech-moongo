@@ -10,4 +10,16 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    proxy: {
+      '/notion-api': {
+        target: 'https://api.notion.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/notion-api/, ''),
+        headers: {
+          'Notion-Version': '2022-06-28',
+        },
+      },
+    },
+  },
 })
