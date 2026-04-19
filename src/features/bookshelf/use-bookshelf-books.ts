@@ -10,56 +10,44 @@ interface BookStyle {
   pattern: 'plain' | 'striped' | 'bordered' | 'embossed'
 }
 
-const CATEGORY_STYLE_MAP: Record<string, BookStyle> = {
-  Algorithm: { color: '#2C5F8C', accent: '#AED6F1', pattern: 'striped'  },
-  Web:       { color: '#1E8449', accent: '#ABEBC6', pattern: 'bordered' },
-  Database:  { color: '#7E5109', accent: '#F5CBA7', pattern: 'embossed' },
-  Network:   { color: '#6C3483', accent: '#D7BDE2', pattern: 'striped'  },
-  OS:        { color: '#117A65', accent: '#A2D9CE', pattern: 'bordered' },
-  CS:        { color: '#1C2833', accent: '#85929E', pattern: 'plain'    },
-  DevOps:    { color: '#922B21', accent: '#FDEDEC', pattern: 'embossed' },
-  Python:    { color: '#D4810D', accent: '#FDEBD0', pattern: 'striped'  },
-  JavaScript:{ color: '#9A7D0A', accent: '#FEF9E7', pattern: 'bordered' },
-  TypeScript:{ color: '#154360', accent: '#D6EAF8', pattern: 'plain'    },
-}
-
-// Fallback: generate a stable color from category string hash
-function hashColor(str: string): BookStyle {
+function pastelStyle(category: string): BookStyle {
   let hash = 0
-  for (const ch of str) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
+  for (const ch of category) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
   const hue = hash % 360
+  const patterns = ['plain', 'striped', 'bordered', 'embossed'] as const
   return {
-    color:   `hsl(${hue}, 55%, 30%)`,
-    accent:  `hsl(${hue}, 40%, 80%)`,
-    pattern: (['plain', 'striped', 'bordered', 'embossed'] as const)[hash % 4],
+    color:   `hsl(${hue}, 50%, 72%)`,
+    accent:  `hsl(${hue}, 35%, 40%)`,
+    pattern: patterns[hash % 4],
   }
 }
 
 export function getBookStyle(category: string): BookStyle {
-  return CATEGORY_STYLE_MAP[category] ?? hashColor(category)
+  return pastelStyle(category)
 }
 
 // ── Derived visual dimensions ─────────────────────────────────────────────────
-// Height  ← titleLen  (normalized to 0.45 – 0.70)
-// Thickness ← tagCount (0 tags→0.07, 1-2→0.09, 3→0.11, 4+→0.13)
 export function bookHeight(titleLen: number): number {
   const normalized = Math.min(Math.max((titleLen - 5) / 75, 0), 1)
-  return 0.45 + normalized * 0.25
+  return 0.60 + normalized * 0.35
 }
 
+// Slightly thicker than before for better spine readability
 export function bookThickness(tagCount: number): number {
-  if (tagCount === 0) return 0.07
-  if (tagCount <= 2)  return 0.09
-  if (tagCount === 3) return 0.11
-  return 0.13
+  if (tagCount === 0) return 0.10
+  if (tagCount <= 2)  return 0.13
+  if (tagCount === 3) return 0.16
+  return 0.20
 }
 
 // ── TanStack Query hook ───────────────────────────────────────────────────────
 export interface VisualBook extends BookEntry {
-  style:     BookStyle
-  height:    number
-  thickness: number
-  shelfIndex: number  // which shelf row (0 = bottom, 1 = top, ...)
+  style:                BookStyle
+  height:               number
+  thickness:            number
+  shelfIndex:           number
+  bookcaseIndex:        number
+  shelfIndexInBookcase: number
 }
 
 const MAX_PER_SHELF = 20
@@ -70,13 +58,38 @@ export function useBookshelfBooks() {
     queryFn: async (): Promise<VisualBook[]> => {
       const entries = await fetchPublicBooks()
 
-      return entries.map((e, i) => ({
-        ...e,
-        style:      getBookStyle(e.category),
-        height:     bookHeight(e.titleLen),
-        thickness:  bookThickness(e.tagCount),
-        shelfIndex: Math.floor(i / MAX_PER_SHELF),
-      }))
+      // Group by category, sort within each group by date
+      const groups = new Map<string, BookEntry[]>()
+      entries.forEach(e => {
+        const arr = groups.get(e.category) ?? []
+        arr.push(e)
+        groups.set(e.category, arr)
+      })
+
+      // Categories sorted alphabetically for stable shelf order
+      const sortedCats = [...groups.keys()].sort()
+
+      const result: VisualBook[] = []
+      let shelfIndex = 0
+
+      sortedCats.forEach(cat => {
+        const catBooks = groups.get(cat)!.sort((a, b) => a.date.localeCompare(b.date))
+        catBooks.forEach((e, i) => {
+          if (i > 0 && i % MAX_PER_SHELF === 0) shelfIndex++
+          result.push({
+            ...e,
+            style:                getBookStyle(cat),
+            height:               bookHeight(e.titleLen),
+            thickness:            bookThickness(e.tagCount),
+            shelfIndex,
+            bookcaseIndex:        Math.floor(shelfIndex / 5),
+            shelfIndexInBookcase: shelfIndex % 5,
+          })
+        })
+        shelfIndex++ // next category always starts on a new shelf
+      })
+
+      return result
     },
     staleTime: 1000 * 60 * 5,
   })

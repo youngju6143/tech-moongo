@@ -5,9 +5,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { VisualBook } from './use-bookshelf-books'
 import { useBookshelfBooks } from './use-bookshelf-books'
 
-// ── Shelf geometry constants ──────────────────────────────────────────────────
-const SW = 5.4 // total width
-const SH = 1.6 // height per shelf unit (will stack per shelf count)
+// ── Shelf geometry constants (SW is now dynamic) ──────────────────────────────
+const SH = 1.2 // height per shelf unit
 const SD = 0.55 // depth
 const PT = 0.06 // panel thickness
 const ST = 0.08 // side thickness
@@ -22,31 +21,31 @@ function makeSpineTexture(
   label: string
 ): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
-  canvas.width = 64
-  canvas.height = 256
+  canvas.width = 128
+  canvas.height = 512
   const ctx = canvas.getContext('2d')!
 
   ctx.fillStyle = color
-  ctx.fillRect(0, 0, 64, 256)
+  ctx.fillRect(0, 0, 128, 512)
 
   ctx.strokeStyle = accent
   ctx.fillStyle = accent
 
   if (pattern === 'striped') {
-    ctx.lineWidth = 2.5
-    for (let y = 18; y < 238; y += 22) {
+    ctx.lineWidth = 5
+    for (let y = 36; y < 476; y += 44) {
       ctx.beginPath()
-      ctx.moveTo(8, y)
-      ctx.lineTo(56, y)
+      ctx.moveTo(16, y)
+      ctx.lineTo(112, y)
       ctx.stroke()
     }
   } else if (pattern === 'bordered') {
-    ctx.lineWidth = 4
-    ctx.strokeRect(5, 5, 54, 246)
-    ctx.lineWidth = 1.5
-    ctx.strokeRect(9, 9, 46, 238)
+    ctx.lineWidth = 8
+    ctx.strokeRect(10, 10, 108, 492)
+    ctx.lineWidth = 3
+    ctx.strokeRect(18, 18, 92, 476)
   } else if (pattern === 'embossed') {
-    ctx.lineWidth = 2
+    ctx.lineWidth = 4
     const diamond = (cx: number, cy: number, r: number) => {
       ctx.beginPath()
       ctx.moveTo(cx, cy - r)
@@ -56,27 +55,27 @@ function makeSpineTexture(
       ctx.closePath()
       ctx.stroke()
     }
-    diamond(32, 42, 24)
-    diamond(32, 214, 24)
+    diamond(64, 84, 48)
+    diamond(64, 428, 48)
   }
 
-  // Title lines
-  ctx.fillRect(10, 94, 44, 5)
-  ctx.fillRect(14, 106, 36, 3.5)
+  // Decorative title bar lines
+  ctx.fillRect(20, 188, 88, 10)
+  ctx.fillRect(28, 212, 72, 7)
 
-  // Label text (category initial, readable as decoration)
+  // Title text — rotated to run along spine length
   ctx.save()
-  ctx.translate(32, 128)
+  ctx.translate(64, 256)
   ctx.rotate(-Math.PI / 2)
-  ctx.font = 'bold 10px sans-serif'
+  ctx.font = 'bold 20px sans-serif'
   ctx.fillStyle = accent
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(label.slice(0, 18), 0, 0)
+  ctx.fillText(label.slice(0, 22), 0, 0)
   ctx.restore()
 
   ctx.fillStyle = accent
-  ctx.fillRect(12, 200, 40, 3)
+  ctx.fillRect(24, 400, 80, 6)
 
   return new THREE.CanvasTexture(canvas)
 }
@@ -92,9 +91,9 @@ function createBookMesh(book: VisualBook, xPos: number, yBase: number): THREE.Me
   const materials: THREE.Material[] = [
     new THREE.MeshPhongMaterial({ color: hexColor, shininess: 15 }),
     new THREE.MeshPhongMaterial({ color: hexColor, shininess: 15 }),
-    new THREE.MeshPhongMaterial({ color: 0xf5f0e8, shininess: 5 }), // pages top
+    new THREE.MeshPhongMaterial({ color: 0xf5f0e8, shininess: 5 }),
     new THREE.MeshPhongMaterial({ color: 0xe0d8c8, shininess: 5 }),
-    new THREE.MeshPhongMaterial({ map: spineTexture, shininess: 20 }), // spine
+    new THREE.MeshPhongMaterial({ map: spineTexture, shininess: 20 }), // spine face
     new THREE.MeshPhongMaterial({ color: hexColor.clone().multiplyScalar(0.75) }),
   ]
 
@@ -106,9 +105,51 @@ function createBookMesh(book: VisualBook, xPos: number, yBase: number): THREE.Me
   return mesh
 }
 
+// ── Bookmark tab texture helper ───────────────────────────────────────────────
+const FONT_SIZE = 40
+const PX_PAD = 40
+const PY_PAD = 24
+const WORLD_PER_PX = 0.13 / 64 // pixel-density anchor
+
+function makeTabTexture(
+  label: string,
+  bgColor: string
+): { texture: THREE.CanvasTexture; worldWidth: number; worldHeight: number } {
+  // Measure text width before allocating the real canvas
+  const probe = document.createElement('canvas').getContext('2d')!
+  probe.font = `bold ${FONT_SIZE}px sans-serif`
+  const textW = Math.ceil(probe.measureText(label).width)
+
+  const canvasW = textW + 2 * PX_PAD
+  const canvasH = FONT_SIZE + 2 * PY_PAD
+
+  const canvas = document.createElement('canvas')
+  canvas.width = canvasW
+  canvas.height = canvasH
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = bgColor
+  ctx.fillRect(0, 0, canvasW, canvasH)
+  ctx.font = `bold ${FONT_SIZE}px sans-serif`
+  ctx.fillStyle = '#ffffff'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(label, canvasW / 2, canvasH / 2)
+
+  return {
+    texture: new THREE.CanvasTexture(canvas),
+    worldWidth: canvasW * WORLD_PER_PX,
+    worldHeight: canvasH * WORLD_PER_PX,
+  }
+}
+
 // ── Bookcase structure ────────────────────────────────────────────────────────
-function buildBookcase(scene: THREE.Scene, numShelves: number) {
-  const totalHeight = SH * numShelves + PT // approx full height
+function buildBookcase(
+  scene: THREE.Scene,
+  numShelves: number,
+  sw: number,
+  offsetX: number
+): number[] {
+  const totalHeight = SH * numShelves + PT
 
   const mainWood = new THREE.MeshPhongMaterial({ color: 0x9c6b3c, shininess: 40 })
   const sideWood = new THREE.MeshPhongMaterial({ color: 0x7a5230, shininess: 25 })
@@ -117,6 +158,8 @@ function buildBookcase(scene: THREE.Scene, numShelves: number) {
   const edgeMat = new THREE.MeshPhongMaterial({ color: 0x5c3d1e, shininess: 50 })
 
   const group = new THREE.Group()
+  group.position.x = offsetX
+
   const addBox = (geo: THREE.BoxGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
     const m = new THREE.Mesh(geo, mat)
     m.position.set(x, y, z)
@@ -127,46 +170,46 @@ function buildBookcase(scene: THREE.Scene, numShelves: number) {
 
   const halfH = totalHeight / 2
 
-  // Left / right side panels
-  addBox(new THREE.BoxGeometry(ST, totalHeight, SD), sideWood, -SW / 2 + ST / 2, 0, 0)
-  addBox(new THREE.BoxGeometry(ST, totalHeight, SD), sideWood, SW / 2 - ST / 2, 0, 0)
+  // Side panels
+  addBox(new THREE.BoxGeometry(ST, totalHeight, SD), sideWood, -sw / 2 + ST / 2, 0, 0)
+  addBox(new THREE.BoxGeometry(ST, totalHeight, SD), sideWood, sw / 2 - ST / 2, 0, 0)
 
   // Back panel
-  const back = new THREE.Mesh(new THREE.BoxGeometry(SW, totalHeight, 0.04), backWood)
+  const back = new THREE.Mesh(new THREE.BoxGeometry(sw, totalHeight, 0.04), backWood)
   back.position.set(0, 0, -SD / 2 + 0.02)
   group.add(back)
 
-  // Horizontal panels: bottom + one per shelf + top
+  // Horizontal panels + neutral edge strips
   const shelfYPositions: number[] = []
   for (let s = 0; s <= numShelves; s++) {
     const y = -halfH + PT / 2 + s * SH
     addBox(
-      new THREE.BoxGeometry(SW - 2 * ST, PT, SD),
+      new THREE.BoxGeometry(sw - 2 * ST, PT, SD),
       s === 0 || s === numShelves ? mainWood : shelfWood,
       0,
       y,
       0
     )
-    if (s < numShelves) shelfYPositions.push(y + PT / 2) // top surface of panel
+    if (s < numShelves) shelfYPositions.push(y + PT / 2)
 
-    // Decorative front edge strip
+    // Neutral base edge strip (category strips layer on top of these)
     const edgeY = y + PT / 2
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(SW - 2 * ST, 0.022, 0.022), edgeMat)
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(sw - 2 * ST, 0.022, 0.022), edgeMat)
     edge.position.set(0, edgeY, SD / 2 - 0.011)
     group.add(edge)
   }
 
   scene.add(group)
-  return shelfYPositions // y = base Y for books on each shelf
+  return shelfYPositions
 }
 
 // ── Place one shelf row of books ──────────────────────────────────────────────
-function placeShelfBooks(books: VisualBook[], yBase: number, scene: THREE.Scene) {
+function placeShelfBooks(books: VisualBook[], yBase: number, scene: THREE.Scene, offsetX: number) {
   const totalW = books.reduce((s, b) => s + b.thickness, 0) + (books.length - 1) * GAP
   let x = -totalW / 2
   books.forEach((book) => {
     x += book.thickness / 2
-    scene.add(createBookMesh(book, x, yBase))
+    scene.add(createBookMesh(book, x + offsetX, yBase))
     x += book.thickness / 2 + GAP
   })
 }
@@ -227,24 +270,41 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     const container = containerRef.current
     if (!container || books.length === 0) return
 
-    // Group by shelf index
-    const shelvesMap = new Map<number, VisualBook[]>()
+    // Map: bookcaseIndex → (shelfIndexInBookcase → books[])
+    const bookcasesMap = new Map<number, Map<number, VisualBook[]>>()
     books.forEach((b) => {
-      const arr = shelvesMap.get(b.shelfIndex) ?? []
+      if (!bookcasesMap.has(b.bookcaseIndex)) bookcasesMap.set(b.bookcaseIndex, new Map())
+      const shelves = bookcasesMap.get(b.bookcaseIndex)!
+      const arr = shelves.get(b.shelfIndexInBookcase) ?? []
       arr.push(b)
-      shelvesMap.set(b.shelfIndex, arr)
+      shelves.set(b.shelfIndexInBookcase, arr)
     })
-    const numShelves = Math.max(...shelvesMap.keys()) + 1
+    const numBookcases = bookcasesMap.size
+
+    // Compute sw globally (max shelf width across ALL shelves in all bookcases)
+    let maxShelfBooksWidth = 0
+    bookcasesMap.forEach((shelves) => {
+      shelves.forEach((shelfBooks) => {
+        const w =
+          shelfBooks.reduce((s, b) => s + b.thickness, 0) + Math.max(shelfBooks.length - 1, 0) * GAP
+        maxShelfBooksWidth = Math.max(maxShelfBooksWidth, w)
+      })
+    })
+    const sw = Math.max(maxShelfBooksWidth + ST * 2 + 0.4, 1.8)
+
+    const bookcaseSpacing = sw + 0.15
+    const totalWidth = numBookcases * sw + (numBookcases - 1) * 0.15
 
     // Scene
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x87ceeb)
     scene.fog = new THREE.FogExp2(0xb0d8f0, 0.035)
 
-    // Camera
+    // Camera — far enough to see all bookcases
+    const actualTotalHeight = SH * 5 + PT
     const aspect = container.clientWidth / container.clientHeight
     const camera = new THREE.PerspectiveCamera(50, aspect, 0.1, 60)
-    const cameraZ = 5 + numShelves * 0.8
+    const cameraZ = Math.max(totalWidth * 1.1, actualTotalHeight * 0.9 + 1.5, 3.5)
     camera.position.set(0, 0, cameraZ)
 
     // Renderer
@@ -260,8 +320,8 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     controls.enableDamping = true
     controls.dampingFactor = 0.06
     controls.target.set(0, 0, 0)
-    controls.minDistance = 2
-    controls.maxDistance = 16
+    controls.minDistance = 1.5
+    controls.maxDistance = cameraZ + 8
     controls.maxPolarAngle = Math.PI * 0.62
     controls.update()
 
@@ -272,8 +332,8 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     sun.position.set(4, 7, 6)
     sun.castShadow = true
     sun.shadow.mapSize.set(2048, 2048)
-    sun.shadow.camera.left = -10
-    sun.shadow.camera.right = 10
+    sun.shadow.camera.left = -(totalWidth / 2 + 3)
+    sun.shadow.camera.right = totalWidth / 2 + 3
     sun.shadow.camera.top = 10
     sun.shadow.camera.bottom = -10
     scene.add(sun)
@@ -282,24 +342,69 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     fill.position.set(-5, 3, 3)
     scene.add(fill)
 
-    // Build bookcase and get per-shelf y bases
-    const shelfYBases = buildBookcase(scene, numShelves)
+    // Build bookcases and place books
+    bookcasesMap.forEach((shelves, bcIdx) => {
+      const numShelvesInCase = shelves.size
+      const offsetX = bcIdx * bookcaseSpacing - totalWidth / 2 + sw / 2
 
-    // Place books per shelf
-    shelvesMap.forEach((shelfBooks, idx) => {
-      if (shelfYBases[idx] !== undefined) {
-        placeShelfBooks(shelfBooks, shelfYBases[idx], scene)
-      }
+      const shelfYBases = buildBookcase(scene, numShelvesInCase, sw, offsetX)
+
+      // Category-colored edge strips
+      const shelfColorMap = new Map<number, string>()
+      shelves.forEach((shelfBooks, sIdx) => {
+        if (shelfBooks[0]) shelfColorMap.set(sIdx, shelfBooks[0].style.color)
+      })
+      shelfColorMap.forEach((color, sIdx) => {
+        if (shelfYBases[sIdx] === undefined) return
+        const strip = new THREE.Mesh(
+          new THREE.BoxGeometry(sw - 2 * ST, 0.03, 0.02),
+          new THREE.MeshPhongMaterial({ color: new THREE.Color(color), shininess: 70 })
+        )
+        strip.position.set(offsetX, shelfYBases[sIdx], SD / 2 - 0.008)
+        scene.add(strip)
+      })
+
+      // Bookmark tabs — one per shelf on the right side
+      shelves.forEach((shelfBooks, sIdx) => {
+        if (shelfYBases[sIdx] === undefined || shelfBooks.length === 0) return
+        const cat = shelfBooks[0].category
+        const color = shelfBooks[0].style.color
+        const tabTex = makeTabTexture(cat, color)
+        const tabMaterials: THREE.Material[] = [
+          new THREE.MeshPhongMaterial({ color: new THREE.Color(color) }),
+          new THREE.MeshPhongMaterial({ color: new THREE.Color(color) }),
+          new THREE.MeshPhongMaterial({ color: new THREE.Color(color) }),
+          new THREE.MeshPhongMaterial({ color: new THREE.Color(color) }),
+          new THREE.MeshPhongMaterial({ map: tabTex.texture }), // front face
+          new THREE.MeshPhongMaterial({ color: new THREE.Color(color) }),
+        ]
+        const tab = new THREE.Mesh(
+          new THREE.BoxGeometry(tabTex.worldWidth, tabTex.worldHeight, 0.02),
+          tabMaterials
+        )
+        tab.position.set(
+          offsetX + sw / 2 - ST - tabTex.worldWidth / 2,
+          shelfYBases[sIdx] + tabTex.worldHeight / 2,
+          SD / 2 + 0.012
+        )
+        scene.add(tab)
+      })
+
+      // Place books
+      shelves.forEach((shelfBooks, sIdx) => {
+        if (shelfYBases[sIdx] !== undefined) {
+          placeShelfBooks(shelfBooks, shelfYBases[sIdx], scene, offsetX)
+        }
+      })
     })
 
     // Floor
-    const totalHeight = SH * numShelves + PT
     const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(30, 30),
+      new THREE.PlaneGeometry(50, 50),
       new THREE.MeshPhongMaterial({ color: 0xd9cdb8 })
     )
     floor.rotation.x = -Math.PI / 2
-    floor.position.y = -totalHeight / 2
+    floor.position.y = -actualTotalHeight / 2
     floor.receiveShadow = true
     scene.add(floor)
 
@@ -340,7 +445,7 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     renderer.domElement.addEventListener('mousemove', onMove)
     renderer.domElement.addEventListener('mouseleave', onLeave)
 
-    // Loop
+    // Render loop
     let rafId: number
     const animate = () => {
       rafId = requestAnimationFrame(animate)
