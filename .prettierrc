@@ -1,0 +1,24 @@
+{
+  "semi": false,
+  "singleQuote": true,
+  "tabWidth": 2,
+  "trailingComma": "es5",
+  "printWidth": 100,
+  "plugins": ["prettier-plugin-tailwindcss"],
+  "importOrder": [
+    "^(react|react-dom)(.*)$",
+    "^(next)(.*)$",
+    "<THIRD_PARTY_MODULES>",
+    "^@/types/(.*)$",
+    "^@/lib/(.*)$",
+    "^@/hooks/(.*)$",
+    "^@/context/(.*)$",
+    "^@/providers/(.*)$",
+    "^@/services/(.*)$",
+    "^@/shared/(.*)$",
+    "^@/features/(.*)$",
+    "^@/components/(.*)$",
+    "^@/app/(.*)$",
+    "^[./]"
+  ]
+}

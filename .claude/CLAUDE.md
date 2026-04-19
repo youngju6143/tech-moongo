@@ -4,17 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**tech-moongo** is a graduation project (졸업프로젝트). The tech stack and architecture have not been established yet — this repository is in its initial state.
+**tech-moongo** is a graduation project (졸업프로젝트).
 
 ## Getting Started
 
-No build system, package manager, or framework has been configured. When the project stack is decided, update this file with:
-
-- How to install dependencies
-- How to run the development server
-- How to build for production
-- How to run tests (and a single test)
-- How to lint/format
+```bash
+pnpm install       # 의존성 설치
+pnpm dev           # 개발 서버 (http://localhost:5173)
+pnpm build         # 프로덕션 빌드
+pnpm lint          # ESLint 검사
+```
 
 ## 기술 스택
 
@@ -30,12 +29,9 @@ No build system, package manager, or framework has been configured. When the pro
 
 ## 프로젝트 레이아웃(도메인 계층)
 
-- `app/`: 레이아웃, 라우트 세그먼트, 전역 메타데이터, 모달 슬롯, 프로바이더 배선.
-- `components/`: 재사용 가능한 UI 프리미티브 및 복합 컴포넌트(shadcn 기반 공용 컴포넌트).
+- `pages/`: 페이지 라우팅
 - `features/`: 엔티티 + 공용 UI를 조합한 제품 기능 단위(예: 관리 탭, 인증 플로우, 대시보드).
-- `shared/`: 다수 도메인에서 쓰는 유틸, 상수, 서비스, 범용 UI.
-- `types/`: 전역 TypeScript 타입/enum.
-- `hooks/`, `context/`, `providers/`, `services/`: 전역/횡단 관심사(React Query, 모달/토스트, 컨텍스트, 웹소켓 등).
+- `shared/`: 다수 도메인에서 쓰는 유틸, 상수, 훅, 타입, shadcn/ui UI.
 - `public/`: 정적 자산; `lib/`: 클라이언트 유틸(axios 래퍼, 포매터, 내비게이션 헬퍼 등).
 - FSD(Feature-Sliced Design) 준수: 의존 방향은 상위 → 하위만 허용 (app → features → entities → shared → lib/types). 상위 레이어는 하위의 구현 세부에 결합하지 않도록 유지.
 
