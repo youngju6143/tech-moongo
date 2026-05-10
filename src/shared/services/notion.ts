@@ -1,3 +1,5 @@
+import { countKeywords } from '@/shared/lib/scoring'
+
 const TOKEN = import.meta.env.VITE_NOTION_TOKEN as string
 const DB_ID = import.meta.env.VITE_NOTION_DATABASE_ID as string
 
@@ -43,17 +45,56 @@ interface NotionQueryResponse {
   next_cursor: string | null
 }
 
+// ── Notion Blocks types ───────────────────────────────────────────────────────
+interface NotionRichText {
+  plain_text: string
+}
+
+interface NotionBlockContent {
+  rich_text?: NotionRichText[]
+}
+
+interface NotionBlock {
+  type: string
+  [key: string]: unknown
+}
+
+interface NotionBlocksResponse {
+  results: NotionBlock[]
+  has_more: boolean
+  next_cursor: string | null
+}
+
+// Block types that contain readable text
+const TEXT_BLOCK_TYPES = new Set([
+  'paragraph',
+  'heading_1',
+  'heading_2',
+  'heading_3',
+  'bulleted_list_item',
+  'numbered_list_item',
+  'quote',
+  'callout',
+  'toggle',
+  'to_do',
+  'code',
+])
+
 // ── Parsed book data ──────────────────────────────────────────────────────────
 export interface BookEntry {
   id: string
   url: string
   title: string
   category: string
-  date: string // ISO date string
+  date: string
   tags: string[]
-  thumbnail: string | null // signed URL from Notion (expires in ~1h)
-  titleLen: number // proxy for content length → drives book height
-  tagCount: number // proxy for richness → drives book thickness
+  thumbnail: string | null
+  titleLen: number
+  tagCount: number
+  // Content-based fields for scoring
+  contentLength: number   // total text char count from page blocks
+  codeBlockCount: number  // number of code blocks (proxy for technical depth)
+  keywordCount: number    // matched technical keyword count
 }
 
 // ── Fetch all public pages (auto-paginates) ───────────────────────────────────
@@ -85,7 +126,50 @@ async function fetchPage(startCursor?: string): Promise<NotionQueryResponse> {
   return res.json() as Promise<NotionQueryResponse>
 }
 
+// ── Fetch page content blocks and extract scoring signals ─────────────────────
+async function fetchPageContent(
+  pageId: string,
+): Promise<{ contentLength: number; codeBlockCount: number; keywordCount: number }> {
+  let text = ''
+  let codeCount = 0
+  let cursor: string | undefined = undefined
+
+  do {
+    const params = new URLSearchParams({ page_size: '100' })
+    if (cursor) params.set('start_cursor', cursor)
+
+    const res = await fetch(`/notion-api/v1/blocks/${pageId}/children?${params}`, {
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        'Notion-Version': '2022-06-28',
+      },
+    })
+    if (!res.ok) break
+
+    const data = (await res.json()) as NotionBlocksResponse
+
+    for (const block of data.results) {
+      if (block.type === 'code') codeCount++
+      if (TEXT_BLOCK_TYPES.has(block.type)) {
+        const content = block[block.type] as NotionBlockContent | undefined
+        if (content?.rich_text) {
+          text += content.rich_text.map((r) => r.plain_text).join('')
+        }
+      }
+    }
+
+    cursor = data.has_more && data.next_cursor ? data.next_cursor : undefined
+  } while (cursor)
+
+  return {
+    contentLength: text.length,
+    codeBlockCount: codeCount,
+    keywordCount: countKeywords(text),
+  }
+}
+
 export async function fetchPublicBooks(): Promise<BookEntry[]> {
+  // 1. Fetch all page metadata
   const pages: NotionPage[] = []
   let cursor: string | undefined = undefined
 
@@ -95,7 +179,11 @@ export async function fetchPublicBooks(): Promise<BookEntry[]> {
     cursor = data.has_more && data.next_cursor ? data.next_cursor : undefined
   } while (cursor)
 
-  return pages.map<BookEntry>((p) => {
+  // 2. Fetch page content in parallel (allSettled — partial failures don't break all)
+  const contentResults = await Promise.allSettled(pages.map((p) => fetchPageContent(p.id)))
+
+  // 3. Merge metadata + content
+  return pages.map<BookEntry>((p, i) => {
     const props = p.properties
     const title = props.title.title.map((t) => t.plain_text).join('')
     const category = props.category?.select?.name ?? 'Default'
@@ -109,6 +197,11 @@ export async function fetchPublicBooks(): Promise<BookEntry[]> {
         : thumbFile.file.url
       : null
 
+    const content =
+      contentResults[i].status === 'fulfilled'
+        ? contentResults[i].value
+        : { contentLength: 0, codeBlockCount: 0, keywordCount: 0 }
+
     return {
       id: p.id,
       url: p.url,
@@ -119,6 +212,9 @@ export async function fetchPublicBooks(): Promise<BookEntry[]> {
       thumbnail,
       titleLen: title.length,
       tagCount: tags.length,
+      contentLength: content.contentLength,
+      codeBlockCount: content.codeBlockCount,
+      keywordCount: content.keywordCount,
     }
   })
 }

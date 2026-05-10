@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
-import type { VisualBook } from './use-bookshelf-books'
-import { useBookshelfBooks } from './use-bookshelf-books'
+import { ActivityHeatmap } from '../streak/activity-heatmap'
+import { getSpineNormalMap, makeSpineTexture } from './lib/spine-textures'
+import type { VisualBook } from './model/use-bookshelf-books'
+import { useBookshelfBooks } from './model/use-bookshelf-books'
 
 // ── Shelf geometry constants (SW is now dynamic) ──────────────────────────────
 const SH = 1.2 // height per shelf unit
@@ -13,86 +15,40 @@ const ST = 0.08 // side thickness
 const BOOK_DEPTH = 0.3
 const GAP = 0.012 // gap between books
 
-// ── Spine canvas texture ──────────────────────────────────────────────────────
-function makeSpineTexture(
-  color: string,
-  accent: string,
-  pattern: string,
-  label: string
-): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas')
-  canvas.width = 128
-  canvas.height = 512
-  const ctx = canvas.getContext('2d')!
-
-  ctx.fillStyle = color
-  ctx.fillRect(0, 0, 128, 512)
-
-  ctx.strokeStyle = accent
-  ctx.fillStyle = accent
-
-  if (pattern === 'striped') {
-    ctx.lineWidth = 5
-    for (let y = 36; y < 476; y += 44) {
-      ctx.beginPath()
-      ctx.moveTo(16, y)
-      ctx.lineTo(112, y)
-      ctx.stroke()
-    }
-  } else if (pattern === 'bordered') {
-    ctx.lineWidth = 8
-    ctx.strokeRect(10, 10, 108, 492)
-    ctx.lineWidth = 3
-    ctx.strokeRect(18, 18, 92, 476)
-  } else if (pattern === 'embossed') {
-    ctx.lineWidth = 4
-    const diamond = (cx: number, cy: number, r: number) => {
-      ctx.beginPath()
-      ctx.moveTo(cx, cy - r)
-      ctx.lineTo(cx + r * 0.65, cy)
-      ctx.lineTo(cx, cy + r)
-      ctx.lineTo(cx - r * 0.65, cy)
-      ctx.closePath()
-      ctx.stroke()
-    }
-    diamond(64, 84, 48)
-    diamond(64, 428, 48)
-  }
-
-  // Decorative title bar lines
-  ctx.fillRect(20, 188, 88, 10)
-  ctx.fillRect(28, 212, 72, 7)
-
-  // Title text — rotated to run along spine length
-  ctx.save()
-  ctx.translate(64, 256)
-  ctx.rotate(-Math.PI / 2)
-  ctx.font = 'bold 20px sans-serif'
-  ctx.fillStyle = accent
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(label.slice(0, 22), 0, 0)
-  ctx.restore()
-
-  ctx.fillStyle = accent
-  ctx.fillRect(24, 400, 80, 6)
-
-  return new THREE.CanvasTexture(canvas)
-}
-
 // ── Single book mesh ──────────────────────────────────────────────────────────
-function createBookMesh(book: VisualBook, xPos: number, yBase: number, spineTexture: THREE.Texture): THREE.Mesh {
-  const { color } = book.style
-  const { thickness, height } = book
+function createBookMesh(
+  book: VisualBook,
+  xPos: number,
+  yBase: number,
+  isLatest: boolean
+): THREE.Mesh {
+  const { color, accent, pattern } = book.style
+  const { thickness, height, title } = book
+
+  const spineTexture = makeSpineTexture(color, accent, pattern, title)
+  const spineNormal = getSpineNormalMap(pattern)
   const hexColor = new THREE.Color(color)
+  const depthFactor = Math.min(Math.max(book.depthScore, 0), 1)
+
+  // data_analysis.md §4: 발광(Value) ← ActivityScore — 최신/활성 글일수록 spine이 빛남
+  const emissiveColor = new THREE.Color(color).multiplyScalar(book.activityScore * 0.35)
 
   const materials: THREE.Material[] = [
-    new THREE.MeshPhongMaterial({ color: hexColor, shininess: 15 }),
-    new THREE.MeshPhongMaterial({ color: hexColor, shininess: 15 }),
-    new THREE.MeshPhongMaterial({ color: 0x1a1008, shininess: 5 }),
-    new THREE.MeshPhongMaterial({ color: 0x1a1008, shininess: 5 }),
-    new THREE.MeshPhongMaterial({ map: spineTexture, shininess: 40 }), // spine face
-    new THREE.MeshPhongMaterial({ color: hexColor.clone().multiplyScalar(0.6) }),
+    new THREE.MeshPhongMaterial({ color: hexColor, emissive: emissiveColor, shininess: 15 }),
+    new THREE.MeshPhongMaterial({ color: hexColor, emissive: emissiveColor, shininess: 15 }),
+    new THREE.MeshPhongMaterial({ color: 0xf5f0e8, shininess: 5 }),
+    new THREE.MeshPhongMaterial({ color: 0xe0d8c8, shininess: 5 }),
+    new THREE.MeshPhysicalMaterial({
+      map: spineTexture,
+      normalMap: spineNormal,
+      normalScale: new THREE.Vector2(2.4 + depthFactor * 4.2, 2.4 + depthFactor * 4.2),
+      roughness: 0.7 - depthFactor * 0.4,
+      metalness: 0.06 + depthFactor * 0.18,
+      clearcoat: 0.15 + depthFactor * 0.65,
+      clearcoatRoughness: 0.5 - depthFactor * 0.35,
+      emissive: emissiveColor,
+    }),
+    new THREE.MeshPhongMaterial({ color: hexColor.clone().multiplyScalar(0.75) }),
   ]
 
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(thickness, height, BOOK_DEPTH), materials)
@@ -100,6 +56,37 @@ function createBookMesh(book: VisualBook, xPos: number, yBase: number, spineText
   mesh.castShadow = true
   mesh.receiveShadow = true
   mesh.userData = { url: book.url, title: book.title, thumbnail: book.thumbnail, date: book.date }
+
+  if (isLatest) {
+    const ribbonW = Math.max(thickness * 0.24, 0.028)
+    const ribbonH = Math.max(height * 0.42, 0.18)
+    const ribbonD = 0.008
+
+    const shape = new THREE.Shape()
+    shape.moveTo(-ribbonW / 2, ribbonH / 2)
+    shape.lineTo(ribbonW / 2, ribbonH / 2)
+    shape.lineTo(ribbonW / 2, -ribbonH / 2)
+    shape.lineTo(0.014, -ribbonH / 2)
+    shape.lineTo(0, -ribbonH / 2 - 0.02)
+    shape.lineTo(-0.014, -ribbonH / 2)
+    shape.lineTo(-ribbonW / 2, -ribbonH / 2)
+    shape.closePath()
+
+    const ribbonGeo = new THREE.ExtrudeGeometry(shape, {
+      depth: ribbonD,
+      bevelEnabled: false,
+    })
+    const ribbonMat = new THREE.MeshStandardMaterial({
+      color: 0xc44a4a,
+      roughness: 0.6,
+      metalness: 0.0,
+    })
+    const ribbon = new THREE.Mesh(ribbonGeo, ribbonMat)
+    ribbon.position.set(thickness * 0.18, height / 2 + ribbonH * 0.32, BOOK_DEPTH / 2 + ribbonD / 2)
+    ribbon.castShadow = true
+
+    mesh.add(ribbon)
+  }
   return mesh
 }
 
@@ -202,12 +189,18 @@ function buildBookcase(
 }
 
 // ── Place one shelf row of books ──────────────────────────────────────────────
-function placeShelfBooks(books: VisualBook[], yBase: number, scene: THREE.Scene, offsetX: number, spineTexture: THREE.Texture) {
+function placeShelfBooks(
+  books: VisualBook[],
+  yBase: number,
+  scene: THREE.Scene,
+  offsetX: number,
+  latestBookId: string
+) {
   const totalW = books.reduce((s, b) => s + b.thickness, 0) + (books.length - 1) * GAP
   let x = -totalW / 2
   books.forEach((book) => {
     x += book.thickness / 2
-    scene.add(createBookMesh(book, x + offsetX, yBase, spineTexture))
+    scene.add(createBookMesh(book, x + offsetX, yBase, book.id === latestBookId))
     x += book.thickness / 2 + GAP
   })
 }
@@ -324,10 +317,10 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     controls.update()
 
     // Lighting
-    scene.add(new THREE.AmbientLight(0xfff5e0, 0.85))
+    scene.add(new THREE.AmbientLight(0xfff5e0, 0.4))
 
-    const sun = new THREE.DirectionalLight(0xffffff, 1.4)
-    sun.position.set(4, 7, 6)
+    const sun = new THREE.DirectionalLight(0xffffff, 2.6)
+    sun.position.set(6, 4.5, 5)
     sun.castShadow = true
     sun.shadow.mapSize.set(2048, 2048)
     sun.shadow.camera.left = -(totalWidth / 2 + 3)
@@ -336,15 +329,15 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     sun.shadow.camera.bottom = -10
     scene.add(sun)
 
-    const fill = new THREE.DirectionalLight(0xc0d8ff, 0.45)
+    const fill = new THREE.DirectionalLight(0xc0d8ff, 0.3)
     fill.position.set(-5, 3, 3)
     scene.add(fill)
 
-    // Spine texture — middle strip of the book cover image (spine portion)
-    const spineTexture = new THREE.TextureLoader().load('/book-cover.png')
-    spineTexture.wrapS = THREE.RepeatWrapping
-    spineTexture.offset.set(0.40, 0)
-    spineTexture.repeat.set(0.20, 1)
+    const rim = new THREE.DirectionalLight(0xffffff, 0.55)
+    rim.position.set(-6, 2.5, -4)
+    scene.add(rim)
+
+    const latestBookId = [...books].sort((a, b) => b.date.localeCompare(a.date))[0]?.id ?? ''
 
     // Build bookcases and place books
     bookcasesMap.forEach((shelves, bcIdx) => {
@@ -397,7 +390,7 @@ function ThreeCanvas({ books, onTooltip }: Props) {
       // Place books
       shelves.forEach((shelfBooks, sIdx) => {
         if (shelfYBases[sIdx] !== undefined) {
-          placeShelfBooks(shelfBooks, shelfYBases[sIdx], scene, offsetX, spineTexture)
+          placeShelfBooks(shelfBooks, shelfYBases[sIdx], scene, offsetX, latestBookId)
         }
       })
     })
@@ -517,6 +510,7 @@ export function BookshelfScene() {
     <div className="h-screen w-full">
       <ThreeCanvas books={books} onTooltip={setTooltip} />
       {tooltip && <BookTooltip tooltip={tooltip} />}
+      <ActivityHeatmap books={books} />
     </div>
   )
 }
