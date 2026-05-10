@@ -81,20 +81,18 @@ function makeSpineTexture(
 }
 
 // ── Single book mesh ──────────────────────────────────────────────────────────
-function createBookMesh(book: VisualBook, xPos: number, yBase: number): THREE.Mesh {
-  const { color, accent, pattern } = book.style
-  const { thickness, height, title } = book
-
-  const spineTexture = makeSpineTexture(color, accent, pattern, title)
+function createBookMesh(book: VisualBook, xPos: number, yBase: number, spineTexture: THREE.Texture): THREE.Mesh {
+  const { color } = book.style
+  const { thickness, height } = book
   const hexColor = new THREE.Color(color)
 
   const materials: THREE.Material[] = [
     new THREE.MeshPhongMaterial({ color: hexColor, shininess: 15 }),
     new THREE.MeshPhongMaterial({ color: hexColor, shininess: 15 }),
-    new THREE.MeshPhongMaterial({ color: 0xf5f0e8, shininess: 5 }),
-    new THREE.MeshPhongMaterial({ color: 0xe0d8c8, shininess: 5 }),
-    new THREE.MeshPhongMaterial({ map: spineTexture, shininess: 20 }), // spine face
-    new THREE.MeshPhongMaterial({ color: hexColor.clone().multiplyScalar(0.75) }),
+    new THREE.MeshPhongMaterial({ color: 0x1a1008, shininess: 5 }),
+    new THREE.MeshPhongMaterial({ color: 0x1a1008, shininess: 5 }),
+    new THREE.MeshPhongMaterial({ map: spineTexture, shininess: 40 }), // spine face
+    new THREE.MeshPhongMaterial({ color: hexColor.clone().multiplyScalar(0.6) }),
   ]
 
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(thickness, height, BOOK_DEPTH), materials)
@@ -204,12 +202,12 @@ function buildBookcase(
 }
 
 // ── Place one shelf row of books ──────────────────────────────────────────────
-function placeShelfBooks(books: VisualBook[], yBase: number, scene: THREE.Scene, offsetX: number) {
+function placeShelfBooks(books: VisualBook[], yBase: number, scene: THREE.Scene, offsetX: number, spineTexture: THREE.Texture) {
   const totalW = books.reduce((s, b) => s + b.thickness, 0) + (books.length - 1) * GAP
   let x = -totalW / 2
   books.forEach((book) => {
     x += book.thickness / 2
-    scene.add(createBookMesh(book, x + offsetX, yBase))
+    scene.add(createBookMesh(book, x + offsetX, yBase, spineTexture))
     x += book.thickness / 2 + GAP
   })
 }
@@ -342,6 +340,12 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     fill.position.set(-5, 3, 3)
     scene.add(fill)
 
+    // Spine texture — middle strip of the book cover image (spine portion)
+    const spineTexture = new THREE.TextureLoader().load('/book-cover.png')
+    spineTexture.wrapS = THREE.RepeatWrapping
+    spineTexture.offset.set(0.40, 0)
+    spineTexture.repeat.set(0.20, 1)
+
     // Build bookcases and place books
     bookcasesMap.forEach((shelves, bcIdx) => {
       const numShelvesInCase = shelves.size
@@ -393,7 +397,7 @@ function ThreeCanvas({ books, onTooltip }: Props) {
       // Place books
       shelves.forEach((shelfBooks, sIdx) => {
         if (shelfYBases[sIdx] !== undefined) {
-          placeShelfBooks(shelfBooks, shelfYBases[sIdx], scene, offsetX)
+          placeShelfBooks(shelfBooks, shelfYBases[sIdx], scene, offsetX, spineTexture)
         }
       })
     })
