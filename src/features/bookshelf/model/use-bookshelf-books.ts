@@ -125,8 +125,8 @@ export function useBookshelfBooks() {
             height: bookHeight(e.titleLen),
             thickness: lengthToThickness(lScore), // Size=length score
             shelfIndex,
-            bookcaseIndex: Math.floor(shelfIndex / 5),
-            shelfIndexInBookcase: shelfIndex % 5,
+            bookcaseIndex: Math.floor(shelfIndex / 4),
+            shelfIndexInBookcase: shelfIndex % 4,
             lengthScore: lScore,
             depthScore: dScore,
             activityScore: aScore,

@@ -20,6 +20,13 @@ function bookCoverIndex(id: string): number {
   return h % 4
 }
 
+interface WoodTextures {
+  diffuse: THREE.Texture
+  normal: THREE.Texture
+  roughness: THREE.Texture
+  reflection: THREE.Texture
+}
+
 interface CoverImages {
   front: HTMLImageElement
   spine: HTMLImageElement
@@ -84,7 +91,7 @@ function createBookMesh(
   const spineH = coverH
 
   const frontTex = makeBookFaceTex(cover.front, color, coverW, coverH)
-  const backTex  = makeBookFaceTex(cover.back,  color, coverW, coverH)
+  const backTex = makeBookFaceTex(cover.back, color, coverW, coverH)
   const spineTex = makeBookFaceTex(cover.spine, color, spineW, spineH)
 
   const coverMat = (tex: THREE.Texture) =>
@@ -92,7 +99,7 @@ function createBookMesh(
 
   const materials: THREE.Material[] = [
     coverMat(frontTex), // +X 앞 표지
-    coverMat(backTex),  // -X 뒤 표지
+    coverMat(backTex), // -X 뒤 표지
     new THREE.MeshPhongMaterial({ color: 0xf0ead8, shininess: 5 }), // +Y 상단 (페이지 단면)
     new THREE.MeshPhongMaterial({ color: 0xe0d4bc, shininess: 5 }), // -Y 하단
     coverMat(spineTex), // +Z 책등
@@ -175,23 +182,59 @@ function makeTabTexture(
   }
 }
 
+// ── PBR wood material factory ─────────────────────────────────────────────────
+function makeWoodMat(
+  texs: WoodTextures,
+  repeatU: number,
+  repeatV: number,
+  roughnessMult = 1,
+  rotate = false
+): THREE.MeshStandardMaterial {
+  const c = (t: THREE.Texture): THREE.Texture => {
+    const cl = t.clone()
+    cl.wrapS = cl.wrapT = THREE.RepeatWrapping
+    cl.repeat.set(repeatU, repeatV)
+    if (rotate) {
+      cl.rotation = Math.PI / 2
+      cl.center.set(0.5, 0.5)
+    }
+    cl.needsUpdate = true
+    return cl
+  }
+  return new THREE.MeshStandardMaterial({
+    map: c(texs.diffuse),
+    normalMap: c(texs.normal),
+    roughnessMap: c(texs.roughness),
+    metalnessMap: c(texs.reflection),
+    roughness: roughnessMult,
+    metalness: 0.05,
+  })
+}
+
 // ── Bookcase structure ────────────────────────────────────────────────────────
 function buildBookcase(
   scene: THREE.Scene,
   numShelves: number,
   sw: number,
-  offsetX: number
+  offsetX: number,
+  woodTexs: WoodTextures,
+  floorY: number
 ): number[] {
   const totalHeight = SH * numShelves + PT
+  const yOffset = floorY + totalHeight / 2
 
-  const mainWood = new THREE.MeshPhongMaterial({ color: 0x9c6b3c, shininess: 40 })
-  const sideWood = new THREE.MeshPhongMaterial({ color: 0x7a5230, shininess: 25 })
-  const shelfWood = new THREE.MeshPhongMaterial({ color: 0xb8864e, shininess: 35 })
-  const backWood = new THREE.MeshPhongMaterial({ color: 0x6b4226, shininess: 10 })
-  const edgeMat = new THREE.MeshPhongMaterial({ color: 0x5c3d1e, shininess: 50 })
+  const repV = Math.max(1, Math.round(totalHeight * 1.5))
+  const repH = Math.max(1, Math.round(sw * 2))
+
+  const mainWood = makeWoodMat(woodTexs, repH, 1, 0.9, true)
+  const sideWood = makeWoodMat(woodTexs, 1, repV, 1.0)
+  const shelfWood = makeWoodMat(woodTexs, repH, 1, 0.85, true)
+  const backWood = makeWoodMat(woodTexs, 1, repV, 1.1)
+  const edgeMat = makeWoodMat(woodTexs, 1, repV, 0.8)
 
   const group = new THREE.Group()
   group.position.x = offsetX
+  group.position.y = yOffset
 
   const addBox = (geo: THREE.BoxGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
     const m = new THREE.Mesh(geo, mat)
@@ -223,7 +266,7 @@ function buildBookcase(
       y,
       0
     )
-    if (s < numShelves) shelfYPositions.push(y + PT / 2)
+    if (s < numShelves) shelfYPositions.push(y + PT / 2 + yOffset)
 
     // Neutral base edge strip (category strips layer on top of these)
     const edgeY = y + PT / 2
@@ -250,7 +293,9 @@ function placeShelfBooks(
   books.forEach((book) => {
     x += book.thickness / 2
     const coverIdx = bookCoverIndex(book.id)
-    scene.add(createBookMesh(book, x + offsetX, yBase, book.id === latestBookId, allCovers[coverIdx]))
+    scene.add(
+      createBookMesh(book, x + offsetX, yBase, book.id === latestBookId, allCovers[coverIdx])
+    )
     x += book.thickness / 2 + GAP
   })
 }
@@ -342,10 +387,15 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     // Scene
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x87ceeb)
-    scene.fog = new THREE.FogExp2(0xb0d8f0, 0.035)
+
 
     // Camera — far enough to see all bookcases
-    const actualTotalHeight = SH * 5 + PT
+    let maxShelves = 0
+    bookcasesMap.forEach((shelves) => {
+      maxShelves = Math.max(maxShelves, shelves.size)
+    })
+    const actualTotalHeight = SH * maxShelves + PT
+    const floorY = -actualTotalHeight / 2
     const aspect = container.clientWidth / container.clientHeight
     const camera = new THREE.PerspectiveCamera(50, aspect, 0.1, 60)
     const cameraZ = Math.max(totalWidth * 1.1, actualTotalHeight * 0.9 + 1.5, 3.5)
@@ -359,22 +409,22 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     container.appendChild(renderer.domElement)
 
-    // Controls
+    // Controls — 회전만 허용, 줌·패닝 비활성화
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.06
     controls.target.set(0, 0, 0)
-    controls.minDistance = 1.5
-    controls.maxDistance = cameraZ + 8
+    controls.enableZoom = false
+    controls.enablePan = false
     controls.maxPolarAngle = Math.PI * 0.62
     controls.update()
 
     // Lighting
-    scene.add(new THREE.AmbientLight(0xfff5e0, 0.4))
+    scene.add(new THREE.AmbientLight(0xfff5e0, 0.25))
 
-    const sun = new THREE.DirectionalLight(0xffffff, 2.6)
+    const sun = new THREE.DirectionalLight(0xffffff, 1.2)
     sun.position.set(6, 4.5, 5)
-    sun.castShadow = true
+    sun.castShadow = false
     sun.shadow.mapSize.set(2048, 2048)
     sun.shadow.camera.left = -(totalWidth / 2 + 3)
     sun.shadow.camera.right = totalWidth / 2 + 3
@@ -382,15 +432,44 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     sun.shadow.camera.bottom = -10
     scene.add(sun)
 
-    const fill = new THREE.DirectionalLight(0xc0d8ff, 0.3)
+    const fill = new THREE.DirectionalLight(0xc0d8ff, 0.15)
     fill.position.set(-5, 3, 3)
     scene.add(fill)
 
-    const rim = new THREE.DirectionalLight(0xffffff, 0.55)
+    const rim = new THREE.DirectionalLight(0xffffff, 0.25)
     rim.position.set(-6, 2.5, -4)
     scene.add(rim)
 
     const latestBookId = [...books].sort((a, b) => b.date.localeCompare(a.date))[0]?.id ?? ''
+
+    // 책장 PBR 텍스처 로드
+    const tloader = new THREE.TextureLoader()
+    const bsBase = '/texture/bookshelf/737-Bois-de-Sienne-Siena-Wood-001-'
+    const woodTexs: WoodTextures = {
+      diffuse: tloader.load(`${bsBase}DIFFUSE-4K.png`),
+      normal: tloader.load(`${bsBase}NORMALS8_OPENGL-4K.png`),
+      roughness: tloader.load(`${bsBase}ROUGHNESS-4K.png`),
+      reflection: tloader.load(`${bsBase}REFLECTION-4K.png`),
+    }
+
+    // 책갈피 PBR 텍스처 로드 (벨벳)
+    const bmBase = '/texture/bookmark/1K-velvet_2_'
+    const bmTexs = {
+      map:          tloader.load(`${bmBase}basecolor.png`),
+      normalMap:    tloader.load(`${bmBase}normal.png`),
+      roughnessMap: tloader.load(`${bmBase}roughness.png`),
+      metalnessMap: tloader.load(`${bmBase}metallic.png`),
+      aoMap:        tloader.load(`${bmBase}ambientocclusion.png`),
+    }
+    Object.values(bmTexs).forEach((t) => { t.wrapS = t.wrapT = THREE.RepeatWrapping })
+
+    const makeBookmarkMat = (color: string) =>
+      new THREE.MeshStandardMaterial({
+        ...bmTexs,
+        color: new THREE.Color(color),
+        roughness: 1,
+        metalness: 0,
+      })
 
     // Pass 1 (sync): 책장 구조 빌드 + shelfYBases 저장
     const bookcaseShelfData = new Map<number, { offsetX: number; shelfYBases: number[] }>()
@@ -398,7 +477,7 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     bookcasesMap.forEach((shelves, bcIdx) => {
       const numShelvesInCase = shelves.size
       const offsetX = bcIdx * bookcaseSpacing - totalWidth / 2 + sw / 2
-      const shelfYBases = buildBookcase(scene, numShelvesInCase, sw, offsetX)
+      const shelfYBases = buildBookcase(scene, numShelvesInCase, sw, offsetX, woodTexs, floorY)
       bookcaseShelfData.set(bcIdx, { offsetX, shelfYBases })
 
       // Category-colored edge strips
@@ -423,17 +502,16 @@ function ThreeCanvas({ books, onTooltip }: Props) {
         const color = shelfBooks[0].style.color
         const tabTex = makeTabTexture(cat, color)
         const tabMaterials: THREE.Material[] = [
-          new THREE.MeshPhongMaterial({ color: new THREE.Color(color) }),
-          new THREE.MeshPhongMaterial({ color: new THREE.Color(color) }),
-          new THREE.MeshPhongMaterial({ color: new THREE.Color(color) }),
-          new THREE.MeshPhongMaterial({ color: new THREE.Color(color) }),
-          new THREE.MeshPhongMaterial({ map: tabTex.texture }), // front face
-          new THREE.MeshPhongMaterial({ color: new THREE.Color(color) }),
+          makeBookmarkMat(color),
+          makeBookmarkMat(color),
+          makeBookmarkMat(color),
+          makeBookmarkMat(color),
+          new THREE.MeshPhongMaterial({ map: tabTex.texture }), // front face (텍스트)
+          makeBookmarkMat(color),
         ]
-        const tab = new THREE.Mesh(
-          new THREE.BoxGeometry(tabTex.worldWidth, tabTex.worldHeight, 0.02),
-          tabMaterials
-        )
+        const tabGeo = new THREE.BoxGeometry(tabTex.worldWidth, tabTex.worldHeight, 0.02)
+        tabGeo.setAttribute('uv2', tabGeo.attributes.uv)
+        const tab = new THREE.Mesh(tabGeo, tabMaterials)
         tab.position.set(
           offsetX + sw / 2 - ST - tabTex.worldWidth / 2,
           shelfYBases[sIdx] + tabTex.worldHeight / 2,
@@ -457,15 +535,40 @@ function ThreeCanvas({ books, onTooltip }: Props) {
       })
     })
 
-    // Floor
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(50, 50),
-      new THREE.MeshPhongMaterial({ color: 0xd9cdb8 })
-    )
+    // Floor — PBR ground textures
+    const tl = new THREE.TextureLoader()
+    const groundBase = '/texture/ground/Poliigon_ConcretePaversSquare_7100_'
+    const applyRepeat = (t: THREE.Texture) => {
+      t.wrapS = t.wrapT = THREE.RepeatWrapping
+      t.repeat.set(8, 8)
+      return t
+    }
+    const floorMat = new THREE.MeshStandardMaterial({
+      map: applyRepeat(tl.load(`${groundBase}BaseColor.jpg`)),
+      aoMap: applyRepeat(tl.load(`${groundBase}AmbientOcclusion.jpg`)),
+      normalMap: applyRepeat(tl.load(`${groundBase}Normal.png`)),
+      roughnessMap: applyRepeat(tl.load(`${groundBase}Roughness.jpg`)),
+      metalnessMap: applyRepeat(tl.load(`${groundBase}Metallic.jpg`)),
+      roughness: 1,
+      metalness: 1,
+    })
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(50, 50, 1, 1), floorMat)
+    floor.geometry.setAttribute('uv2', floor.geometry.attributes.uv)
     floor.rotation.x = -Math.PI / 2
-    floor.position.y = -actualTotalHeight / 2
+    floor.position.y = floorY
     floor.receiveShadow = true
     scene.add(floor)
+
+    // Wall — background.png 벽지 타일링
+    const wallTex = new THREE.TextureLoader().load('/background.png')
+    wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping
+    wallTex.repeat.set(12, 7)
+    const wall = new THREE.Mesh(
+      new THREE.PlaneGeometry(200, 120),
+      new THREE.MeshBasicMaterial({ map: wallTex })
+    )
+    wall.position.set(0, floorY + actualTotalHeight / 2, -SD / 2 - 0.01)
+    scene.add(wall)
 
     // Click → open Notion page
     const raycaster = new THREE.Raycaster()
