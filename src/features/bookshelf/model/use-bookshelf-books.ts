@@ -11,7 +11,17 @@ import {
 import { fetchPublicBooks } from '@/shared/services/notion'
 import type { BookEntry } from '@/shared/services/notion'
 
-// ── Category → color/accent mapping (hash-based, stable per category) ─────────
+// ── Category → color mapping (8-color fixed palette, hash-based) ──────────────
+const BOOK_COLOR_PALETTE = [
+  '#A80032', // crimson
+  '#18662D', // forest green
+  '#0B78A6', // steel blue
+  '#1E377D', // dark navy
+  '#56376F', // deep purple
+  '#7D2873', // dark mauve
+  '#222222', // charcoal
+]
+
 interface BookStyle {
   color: string
   accent: string
@@ -21,11 +31,8 @@ interface BookStyle {
 function categoryStyle(category: string): Omit<BookStyle, 'pattern'> {
   let hash = 0
   for (const ch of category) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
-  const hue = hash % 360
-  return {
-    color: `hsl(${hue}, 50%, 72%)`,
-    accent: `hsl(${hue}, 35%, 40%)`,
-  }
+  const color = BOOK_COLOR_PALETTE[hash % BOOK_COLOR_PALETTE.length]
+  return { color, accent: color }
 }
 
 export function getBookStyle(

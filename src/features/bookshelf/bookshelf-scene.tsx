@@ -3,55 +3,103 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
 import { ActivityHeatmap } from '../streak/activity-heatmap'
-import { getSpineNormalMap, makeSpineTexture } from './lib/spine-textures'
 import type { VisualBook } from './model/use-bookshelf-books'
 import { useBookshelfBooks } from './model/use-bookshelf-books'
 
 // ── Shelf geometry constants (SW is now dynamic) ──────────────────────────────
 const SH = 1.2 // height per shelf unit
-const SD = 0.55 // depth
+const SD = 0.75 // depth (앞표지 max aspect ~0.67 × max height ~0.95 = 0.64 + 여유)
 const PT = 0.06 // panel thickness
 const ST = 0.08 // side thickness
-const BOOK_DEPTH = 0.3
 const GAP = 0.012 // gap between books
+
+// ── Cover image set (앞표지 / 책등 / 뒷표지 분리) ────────────────────────────
+function bookCoverIndex(id: string): number {
+  let h = 0
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return h % 4
+}
+
+interface CoverImages {
+  front: HTMLImageElement
+  spine: HTMLImageElement
+  back: HTMLImageElement
+  aspect: number // front.naturalWidth / front.naturalHeight
+}
+
+function loadImg(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => resolve(new Image())
+    img.src = src
+  })
+}
+
+async function loadCover(num: number): Promise<CoverImages> {
+  const base = `/book-cover/cover${num}/${num}`
+  const [front, spine, back] = await Promise.all([
+    loadImg(`${base}-front.png`),
+    loadImg(`${base}-spine.png`),
+    loadImg(`${base}-back.png`),
+  ])
+  return { front, spine, back, aspect: front.naturalWidth / (front.naturalHeight || 1) }
+}
+
+// ── Canvas-composited texture (transparent PNG + category bg) ────────────────
+function makeBookFaceTex(
+  img: HTMLImageElement,
+  bgColor: string,
+  canvasW: number,
+  canvasH: number
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = canvasW
+  canvas.height = canvasH
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = bgColor
+  ctx.fillRect(0, 0, canvasW, canvasH)
+  if (img.naturalWidth > 0) ctx.drawImage(img, 0, 0, canvasW, canvasH)
+  return new THREE.CanvasTexture(canvas)
+}
 
 // ── Single book mesh ──────────────────────────────────────────────────────────
 function createBookMesh(
   book: VisualBook,
   xPos: number,
   yBase: number,
-  isLatest: boolean
+  isLatest: boolean,
+  cover: CoverImages
 ): THREE.Mesh {
-  const { color, accent, pattern } = book.style
-  const { thickness, height, title } = book
+  const { color } = book.style
+  const { thickness, height } = book
 
-  const spineTexture = makeSpineTexture(color, accent, pattern, title)
-  const spineNormal = getSpineNormalMap(pattern)
-  const hexColor = new THREE.Color(color)
-  const depthFactor = Math.min(Math.max(book.depthScore, 0), 1)
+  // 앞표지 이미지 aspect로 책 깊이(표지 너비) 결정
+  const bookDepth = cover.aspect > 0 ? cover.aspect * height : 0.65
 
-  // data_analysis.md §4: 발광(Value) ← ActivityScore — 최신/활성 글일수록 spine이 빛남
-  const emissiveColor = new THREE.Color(color).multiplyScalar(book.activityScore * 0.35)
+  // 캔버스 픽셀 크기 = 각 면의 비율에 맞게 설정
+  const coverW = 256
+  const coverH = Math.round(coverW / cover.aspect)
+  const spineW = Math.round(coverH * (thickness / height))
+  const spineH = coverH
+
+  const frontTex = makeBookFaceTex(cover.front, color, coverW, coverH)
+  const backTex  = makeBookFaceTex(cover.back,  color, coverW, coverH)
+  const spineTex = makeBookFaceTex(cover.spine, color, spineW, spineH)
+
+  const coverMat = (tex: THREE.Texture) =>
+    new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5, metalness: 0.1 })
 
   const materials: THREE.Material[] = [
-    new THREE.MeshPhongMaterial({ color: hexColor, emissive: emissiveColor, shininess: 15 }),
-    new THREE.MeshPhongMaterial({ color: hexColor, emissive: emissiveColor, shininess: 15 }),
-    new THREE.MeshPhongMaterial({ color: 0xf5f0e8, shininess: 5 }),
-    new THREE.MeshPhongMaterial({ color: 0xe0d8c8, shininess: 5 }),
-    new THREE.MeshPhysicalMaterial({
-      map: spineTexture,
-      normalMap: spineNormal,
-      normalScale: new THREE.Vector2(2.4 + depthFactor * 4.2, 2.4 + depthFactor * 4.2),
-      roughness: 0.7 - depthFactor * 0.4,
-      metalness: 0.06 + depthFactor * 0.18,
-      clearcoat: 0.15 + depthFactor * 0.65,
-      clearcoatRoughness: 0.5 - depthFactor * 0.35,
-      emissive: emissiveColor,
-    }),
-    new THREE.MeshPhongMaterial({ color: hexColor.clone().multiplyScalar(0.75) }),
+    coverMat(frontTex), // +X 앞 표지
+    coverMat(backTex),  // -X 뒤 표지
+    new THREE.MeshPhongMaterial({ color: 0xf0ead8, shininess: 5 }), // +Y 상단 (페이지 단면)
+    new THREE.MeshPhongMaterial({ color: 0xe0d4bc, shininess: 5 }), // -Y 하단
+    coverMat(spineTex), // +Z 책등
+    new THREE.MeshPhongMaterial({ color: 0x0a0805 }), // -Z 뒷면 (책장 안쪽)
   ]
 
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(thickness, height, BOOK_DEPTH), materials)
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(thickness, height, bookDepth), materials)
   mesh.position.set(xPos, yBase + height / 2, -0.04)
   mesh.castShadow = true
   mesh.receiveShadow = true
@@ -82,7 +130,7 @@ function createBookMesh(
       metalness: 0.0,
     })
     const ribbon = new THREE.Mesh(ribbonGeo, ribbonMat)
-    ribbon.position.set(thickness * 0.18, height / 2 + ribbonH * 0.32, BOOK_DEPTH / 2 + ribbonD / 2)
+    ribbon.position.set(thickness * 0.18, height / 2 + ribbonH * 0.32, bookDepth / 2 + ribbonD / 2)
     ribbon.castShadow = true
 
     mesh.add(ribbon)
@@ -194,13 +242,15 @@ function placeShelfBooks(
   yBase: number,
   scene: THREE.Scene,
   offsetX: number,
-  latestBookId: string
+  latestBookId: string,
+  allCovers: CoverImages[]
 ) {
   const totalW = books.reduce((s, b) => s + b.thickness, 0) + (books.length - 1) * GAP
   let x = -totalW / 2
   books.forEach((book) => {
     x += book.thickness / 2
-    scene.add(createBookMesh(book, x + offsetX, yBase, book.id === latestBookId))
+    const coverIdx = bookCoverIndex(book.id)
+    scene.add(createBookMesh(book, x + offsetX, yBase, book.id === latestBookId, allCovers[coverIdx]))
     x += book.thickness / 2 + GAP
   })
 }
@@ -247,6 +297,9 @@ function BookTooltip({ tooltip }: { tooltip: TooltipState }) {
     </div>
   )
 }
+
+// 모듈 로드 시 4세트(cover1~4) 이미지를 미리 로드
+const allCoversPromise = Promise.all([1, 2, 3, 4].map(loadCover))
 
 // ── Three.js canvas component ─────────────────────────────────────────────────
 interface Props {
@@ -339,12 +392,14 @@ function ThreeCanvas({ books, onTooltip }: Props) {
 
     const latestBookId = [...books].sort((a, b) => b.date.localeCompare(a.date))[0]?.id ?? ''
 
-    // Build bookcases and place books
+    // Pass 1 (sync): 책장 구조 빌드 + shelfYBases 저장
+    const bookcaseShelfData = new Map<number, { offsetX: number; shelfYBases: number[] }>()
+
     bookcasesMap.forEach((shelves, bcIdx) => {
       const numShelvesInCase = shelves.size
       const offsetX = bcIdx * bookcaseSpacing - totalWidth / 2 + sw / 2
-
       const shelfYBases = buildBookcase(scene, numShelvesInCase, sw, offsetX)
+      bookcaseShelfData.set(bcIdx, { offsetX, shelfYBases })
 
       // Category-colored edge strips
       const shelfColorMap = new Map<number, string>()
@@ -386,12 +441,19 @@ function ThreeCanvas({ books, onTooltip }: Props) {
         )
         scene.add(tab)
       })
+    })
 
-      // Place books
-      shelves.forEach((shelfBooks, sIdx) => {
-        if (shelfYBases[sIdx] !== undefined) {
-          placeShelfBooks(shelfBooks, shelfYBases[sIdx], scene, offsetX, latestBookId)
-        }
+    // Pass 2 (async): 이미지 로드 후 책 배치
+    let destroyed = false
+    void allCoversPromise.then((allCovers) => {
+      if (destroyed) return
+      bookcasesMap.forEach((shelves, bcIdx) => {
+        const { offsetX, shelfYBases } = bookcaseShelfData.get(bcIdx)!
+        shelves.forEach((shelfBooks, sIdx) => {
+          if (shelfYBases[sIdx] !== undefined) {
+            placeShelfBooks(shelfBooks, shelfYBases[sIdx], scene, offsetX, latestBookId, allCovers)
+          }
+        })
       })
     })
 
@@ -460,6 +522,7 @@ function ThreeCanvas({ books, onTooltip }: Props) {
     window.addEventListener('resize', onResize)
 
     return () => {
+      destroyed = true
       cancelAnimationFrame(rafId)
       window.removeEventListener('resize', onResize)
       renderer.domElement.removeEventListener('click', onClick)
