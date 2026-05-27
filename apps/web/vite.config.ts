@@ -12,6 +12,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       '/notion-api': {
         target: 'https://api.notion.com',
         changeOrigin: true,
