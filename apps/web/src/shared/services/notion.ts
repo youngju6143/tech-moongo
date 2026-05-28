@@ -1,6 +1,3 @@
-import { countKeywords } from '@/shared/lib/scoring'
-
-const TOKEN = import.meta.env.VITE_NOTION_TOKEN as string
 const DB_ID = import.meta.env.VITE_NOTION_DATABASE_ID as string
 
 // ── Raw Notion API types (minimal subset we use) ──────────────────────────────
@@ -45,40 +42,6 @@ interface NotionQueryResponse {
   next_cursor: string | null
 }
 
-// ── Notion Blocks types ───────────────────────────────────────────────────────
-interface NotionRichText {
-  plain_text: string
-}
-
-interface NotionBlockContent {
-  rich_text?: NotionRichText[]
-}
-
-interface NotionBlock {
-  type: string
-  [key: string]: unknown
-}
-
-interface NotionBlocksResponse {
-  results: NotionBlock[]
-  has_more: boolean
-  next_cursor: string | null
-}
-
-// Block types that contain readable text
-const TEXT_BLOCK_TYPES = new Set([
-  'paragraph',
-  'heading_1',
-  'heading_2',
-  'heading_3',
-  'bulleted_list_item',
-  'numbered_list_item',
-  'quote',
-  'callout',
-  'toggle',
-  'to_do',
-  'code',
-])
 
 // ── Parsed book data ──────────────────────────────────────────────────────────
 export interface BookEntry {
@@ -91,13 +54,12 @@ export interface BookEntry {
   thumbnail: string | null
   titleLen: number
   tagCount: number
-  // Content-based fields for scoring
-  contentLength: number   // total text char count from page blocks
-  codeBlockCount: number  // number of code blocks (proxy for technical depth)
-  keywordCount: number    // matched technical keyword count
+  contentLength: number
+  codeBlockCount: number
+  keywordCount: number
 }
 
-// ── Fetch all public pages (auto-paginates) ───────────────────────────────────
+// ── Fetch all public pages via backend proxy (auto-paginates) ─────────────────
 async function fetchPage(startCursor?: string): Promise<NotionQueryResponse> {
   const body: Record<string, unknown> = {
     filter: {
@@ -109,67 +71,66 @@ async function fetchPage(startCursor?: string): Promise<NotionQueryResponse> {
   }
   if (startCursor) body.start_cursor = startCursor
 
-  const res = await fetch(`/notion-api/v1/databases/${DB_ID}/query`, {
+  const res = await fetch(`/api/notion/databases/${DB_ID}/query`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      'Content-Type': 'application/json',
-      'Notion-Version': '2022-06-28',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
 
   if (!res.ok) {
     const err = await res.text()
-    throw new Error(`Notion API error ${res.status}: ${err}`)
+    throw new Error(`Notion proxy error ${res.status}: ${err}`)
   }
   return res.json() as Promise<NotionQueryResponse>
 }
 
-// ── Fetch page content blocks and extract scoring signals ─────────────────────
+// ── Fetch page content signals via backend (parsing + TTA keyword count) ─────
 async function fetchPageContent(
   pageId: string,
 ): Promise<{ contentLength: number; codeBlockCount: number; keywordCount: number }> {
-  let text = ''
-  let codeCount = 0
-  let cursor: string | undefined = undefined
+  const res = await fetch(`/api/notion/pages/${pageId}/content`)
+  if (!res.ok) return { contentLength: 0, codeBlockCount: 0, keywordCount: 0 }
 
-  do {
-    const params = new URLSearchParams({ page_size: '100' })
-    if (cursor) params.set('start_cursor', cursor)
-
-    const res = await fetch(`/notion-api/v1/blocks/${pageId}/children?${params}`, {
-      headers: {
-        Authorization: `Bearer ${TOKEN}`,
-        'Notion-Version': '2022-06-28',
-      },
-    })
-    if (!res.ok) break
-
-    const data = (await res.json()) as NotionBlocksResponse
-
-    for (const block of data.results) {
-      if (block.type === 'code') codeCount++
-      if (TEXT_BLOCK_TYPES.has(block.type)) {
-        const content = block[block.type] as NotionBlockContent | undefined
-        if (content?.rich_text) {
-          text += content.rich_text.map((r) => r.plain_text).join('')
-        }
-      }
-    }
-
-    cursor = data.has_more && data.next_cursor ? data.next_cursor : undefined
-  } while (cursor)
-
+  const data = await res.json()
   return {
-    contentLength: text.length,
-    codeBlockCount: codeCount,
-    keywordCount: countKeywords(text),
+    contentLength: data.content_length,
+    codeBlockCount: data.code_block_count,
+    keywordCount: data.keyword_count,
+  }
+}
+
+// ── TF-IDF 기반 유사도 분석 결과 ─────────────────────────────────────────────
+export interface SimilarityData {
+  docIds: string[]
+  similarityMatrix: number[][]
+  topTerms: Record<string, string[]>  // doc_id → 상위 TF-IDF 키워드 (최대 5개)
+  clusters: string[][]                 // 유사도 0.15 이상 문서 클러스터
+}
+
+export async function fetchBookSimilarity(
+  books: Array<{ id: string; title: string }>,
+): Promise<SimilarityData | null> {
+  if (books.length < 2) return null
+  try {
+    const res = await fetch('/api/tfidf/analyze-books', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ books }),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    return {
+      docIds: data.doc_ids,
+      similarityMatrix: data.similarity_matrix,
+      topTerms: data.top_terms,
+      clusters: data.clusters,
+    }
+  } catch {
+    return null
   }
 }
 
 export async function fetchPublicBooks(): Promise<BookEntry[]> {
-  // 1. Fetch all page metadata
   const pages: NotionPage[] = []
   let cursor: string | undefined = undefined
 
@@ -179,10 +140,8 @@ export async function fetchPublicBooks(): Promise<BookEntry[]> {
     cursor = data.has_more && data.next_cursor ? data.next_cursor : undefined
   } while (cursor)
 
-  // 2. Fetch page content in parallel (allSettled — partial failures don't break all)
   const contentResults = await Promise.allSettled(pages.map((p) => fetchPageContent(p.id)))
 
-  // 3. Merge metadata + content
   return pages.map<BookEntry>((p, i) => {
     const props = p.properties
     const title = props.title.title.map((t) => t.plain_text).join('')
