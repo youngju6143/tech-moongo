@@ -4,26 +4,25 @@ import re
 from dataclasses import dataclass
 
 import numpy as np
-from konlpy.tag import Okt
+from kiwipiepy import Kiwi
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-okt = Okt()
+_kiwi = Kiwi()
 
-# 의미 없는 품사 필터링 (조사, 어미, 구두점 등)
-_STOP_POS = {"Josa", "Eomi", "Punctuation", "Foreign"}
+# 의미 있는 품사만 남김: 일반명사, 고유명사, 동사, 형용사, 외국어(영문)
+_KEEP_POS = {"NNG", "NNP", "VV", "VA", "SL"}
 
 
 def _tokenize_ko(text: str) -> str:
     """한국어 형태소 분석 + 영문 토큰화 → 공백 구분 문자열 반환."""
-    # 영문 단어 추출 (소문자)
-    en_tokens = re.findall(r"[a-zA-Z]{2,}", text)
+    tokens = _kiwi.tokenize(text, normalize_coda=True)
+    ko_tokens = [t.form for t in tokens if t.tag in _KEEP_POS and len(t.form) > 1]
 
-    # 한국어 형태소 분석
-    morphs = okt.pos(text, norm=True, stem=True)
-    ko_tokens = [word for word, pos in morphs if pos not in _STOP_POS and len(word) > 1]
+    # 영문 단어 별도 추출 (Kiwi SL 태그가 못 잡는 경우 보완)
+    en_tokens = [w.lower() for w in re.findall(r"[a-zA-Z]{2,}", text)]
 
-    return " ".join(ko_tokens + [t.lower() for t in en_tokens])
+    return " ".join(ko_tokens + en_tokens)
 
 
 @dataclass
@@ -36,7 +35,11 @@ class TfidfResult:
 def compute_tfidf(documents: list[dict]) -> TfidfResult:
     """
     documents: [{"id": str, "title": str, "content": str}, ...]
-    반환: 문서 간 코사인 유사도 행렬 + 각 문서 상위 키워드
+
+    각 문서를 TF-IDF 벡터로 변환 후 코사인 유사도 행렬을 계산한다.
+    코사인 유사도: cos(θ) = (A·B) / (|A|×|B|)
+      - 문서 길이와 무관하게 주제(방향)의 유사성만 측정
+      - 0(완전히 다름) ~ 1(동일한 방향)
     """
     doc_ids = [d["id"] for d in documents]
     raw_texts = [d.get("title", "") + " " + d.get("content", "") for d in documents]
@@ -46,9 +49,9 @@ def compute_tfidf(documents: list[dict]) -> TfidfResult:
     vectorizer = TfidfVectorizer(min_df=1, max_features=500)
     tfidf_matrix = vectorizer.fit_transform(tokenized)
 
+    # 코사인 유사도 행렬: shape (n_docs, n_docs)
     sim_matrix = cosine_similarity(tfidf_matrix).tolist()
 
-    # 각 문서별 상위 5개 키워드
     feature_names = vectorizer.get_feature_names_out()
     top_terms: dict[str, list[str]] = {}
     for i, doc_id in enumerate(doc_ids):
