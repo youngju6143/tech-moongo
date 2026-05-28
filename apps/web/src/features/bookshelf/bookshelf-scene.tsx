@@ -53,12 +53,113 @@ async function loadCover(num: number): Promise<CoverImages> {
   return { front, spine, back, aspect: front.naturalWidth / (front.naturalHeight || 1) }
 }
 
-// ── Canvas-composited texture (transparent PNG + category bg) ────────────────
+// ── Depth-pattern overlay helpers ────────────────────────────────────────────
+type BookPattern = 'plain' | 'bordered' | 'striped' | 'embossed'
+
+function _hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.replace('#', ''), 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+function _accentColor(baseHex: string): string {
+  // 베이스 컬러보다 밝은 금빛 계열 억센트
+  const [r, g, b] = _hexToRgb(baseHex)
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000
+  return brightness < 100 ? 'rgba(220,190,120,0.72)' : 'rgba(255,215,100,0.6)'
+}
+
+function drawPatternOverlay(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  pattern: BookPattern,
+  baseColor: string,
+): void {
+  if (pattern === 'plain') return
+
+  const accent = _accentColor(baseColor)
+  const pad = Math.min(w, h) * 0.06
+
+  if (pattern === 'bordered') {
+    // 얇은 단일 금테두리
+    ctx.strokeStyle = accent
+    ctx.lineWidth = Math.max(2, Math.min(w, h) * 0.025)
+    ctx.strokeRect(pad, pad, w - pad * 2, h - pad * 2)
+  }
+
+  if (pattern === 'striped') {
+    // 금테두리 + 대각선 스트라이프 (표지 가장자리에만)
+    ctx.strokeStyle = accent
+    ctx.lineWidth = Math.max(2, Math.min(w, h) * 0.025)
+    ctx.strokeRect(pad, pad, w - pad * 2, h - pad * 2)
+
+    // 코너 대각 장식선
+    const c = Math.min(w, h) * 0.12
+    ctx.lineWidth = Math.max(1.5, Math.min(w, h) * 0.018)
+    for (const [ox, oy, dx, dy] of [
+      [pad, pad, c, 0], [pad, pad, 0, c],
+      [w - pad, pad, -c, 0], [w - pad, pad, 0, c],
+      [pad, h - pad, c, 0], [pad, h - pad, 0, -c],
+      [w - pad, h - pad, -c, 0], [w - pad, h - pad, 0, -c],
+    ] as [number, number, number, number][]) {
+      ctx.beginPath()
+      ctx.moveTo(ox, oy)
+      ctx.lineTo(ox + dx, oy + dy)
+      ctx.stroke()
+    }
+  }
+
+  if (pattern === 'embossed') {
+    // 이중 프레임 + 코너 원형 장식
+    const outer = pad
+    const inner = pad * 2.2
+
+    ctx.strokeStyle = accent
+    ctx.lineWidth = Math.max(2.5, Math.min(w, h) * 0.03)
+    ctx.strokeRect(outer, outer, w - outer * 2, h - outer * 2)
+
+    ctx.lineWidth = Math.max(1.5, Math.min(w, h) * 0.016)
+    ctx.strokeRect(inner, inner, w - inner * 2, h - inner * 2)
+
+    // 네 코너 원형 장식
+    const r = Math.min(w, h) * 0.045
+    for (const [cx, cy] of [
+      [inner, inner],
+      [w - inner, inner],
+      [inner, h - inner],
+      [w - inner, h - inner],
+    ] as [number, number][]) {
+      ctx.beginPath()
+      ctx.arc(cx, cy, r, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+
+    // 각 변 중앙 다이아몬드 장식
+    const d = r * 0.7
+    for (const [cx, cy] of [
+      [w / 2, inner],
+      [w / 2, h - inner],
+      [inner, h / 2],
+      [w - inner, h / 2],
+    ] as [number, number][]) {
+      ctx.beginPath()
+      ctx.moveTo(cx, cy - d)
+      ctx.lineTo(cx + d, cy)
+      ctx.lineTo(cx, cy + d)
+      ctx.lineTo(cx - d, cy)
+      ctx.closePath()
+      ctx.stroke()
+    }
+  }
+}
+
+// ── Canvas-composited texture (transparent PNG + category bg + depth pattern) ─
 function makeBookFaceTex(
   img: HTMLImageElement,
   bgColor: string,
   canvasW: number,
-  canvasH: number
+  canvasH: number,
+  pattern: BookPattern = 'plain',
 ): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = canvasW
@@ -67,7 +168,16 @@ function makeBookFaceTex(
   ctx.fillStyle = bgColor
   ctx.fillRect(0, 0, canvasW, canvasH)
   if (img.naturalWidth > 0) ctx.drawImage(img, 0, 0, canvasW, canvasH)
+  drawPatternOverlay(ctx, canvasW, canvasH, pattern, bgColor)
   return new THREE.CanvasTexture(canvas)
+}
+
+// pattern → 재질 속성 (전문성 높을수록 광택)
+const PATTERN_MAT: Record<BookPattern, { roughness: number; metalness: number }> = {
+  plain:    { roughness: 0.72, metalness: 0.04 },
+  bordered: { roughness: 0.55, metalness: 0.10 },
+  striped:  { roughness: 0.40, metalness: 0.18 },
+  embossed: { roughness: 0.22, metalness: 0.35 },
 }
 
 // ── Single book mesh ──────────────────────────────────────────────────────────
@@ -78,7 +188,7 @@ function createBookMesh(
   isLatest: boolean,
   cover: CoverImages
 ): THREE.Mesh {
-  const { color } = book.style
+  const { color, pattern } = book.style
   const { thickness, height } = book
 
   // 앞표지 이미지 aspect로 책 깊이(표지 너비) 결정
@@ -90,12 +200,13 @@ function createBookMesh(
   const spineW = Math.round(coverH * (thickness / height))
   const spineH = coverH
 
-  const frontTex = makeBookFaceTex(cover.front, color, coverW, coverH)
-  const backTex = makeBookFaceTex(cover.back, color, coverW, coverH)
-  const spineTex = makeBookFaceTex(cover.spine, color, spineW, spineH)
+  const frontTex = makeBookFaceTex(cover.front, color, coverW, coverH, pattern)
+  const backTex = makeBookFaceTex(cover.back, color, coverW, coverH, pattern)
+  const spineTex = makeBookFaceTex(cover.spine, color, spineW, spineH, pattern)
 
+  const { roughness, metalness } = PATTERN_MAT[pattern]
   const coverMat = (tex: THREE.Texture) =>
-    new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5, metalness: 0.1 })
+    new THREE.MeshStandardMaterial({ map: tex, roughness, metalness })
 
   const materials: THREE.Material[] = [
     coverMat(frontTex), // +X 앞 표지
@@ -110,7 +221,7 @@ function createBookMesh(
   mesh.position.set(xPos, yBase + height / 2, -0.04)
   mesh.castShadow = true
   mesh.receiveShadow = true
-  mesh.userData = { url: book.url, title: book.title, thumbnail: book.thumbnail, date: book.date }
+  mesh.userData = { url: book.url, title: book.title, thumbnail: book.thumbnail, date: book.date, topTerms: book.topTerms, similarBooks: book.similarBooks }
 
   if (isLatest) {
     const ribbonW = Math.max(thickness * 0.24, 0.028)
@@ -305,6 +416,8 @@ interface TooltipInfo {
   title: string
   thumbnail: string | null
   date: string
+  topTerms: string[]
+  similarBooks: Array<{ title: string; score: number }>
 }
 
 interface TooltipState {
@@ -321,11 +434,13 @@ function formatDate(iso: string): string {
 function BookTooltip({ tooltip }: { tooltip: TooltipState }) {
   const { info, x, y } = tooltip
   const TOOLTIP_W = 224
+  const TOOLTIP_MAX_H = 340  // 썸네일(128) + 콘텐츠 + 비슷한 글 섹션 상한
   const safeX = x + 20 + TOOLTIP_W > window.innerWidth ? x - TOOLTIP_W - 12 : x + 16
+  const safeY = Math.min(y - 12, window.innerHeight - TOOLTIP_MAX_H - 8)
 
   return (
     <div
-      style={{ left: safeX, top: y - 12 }}
+      style={{ left: safeX, top: safeY }}
       className="pointer-events-none fixed z-50 w-56 overflow-hidden rounded-2xl border border-stone-200/60 bg-white/95 shadow-2xl backdrop-blur-md"
     >
       {info.thumbnail ? (
@@ -338,6 +453,33 @@ function BookTooltip({ tooltip }: { tooltip: TooltipState }) {
       <div className="px-3 py-2.5">
         <p className="text-sm leading-snug font-semibold text-stone-800">{info.title}</p>
         <p className="mt-1 text-xs text-stone-400">{formatDate(info.date)}</p>
+        {info.topTerms.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {info.topTerms.map((term) => (
+              <span
+                key={term}
+                className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] text-stone-500"
+              >
+                {term}
+              </span>
+            ))}
+          </div>
+        )}
+        {info.similarBooks.length > 0 && (
+          <div className="mt-2.5 border-t border-stone-100 pt-2">
+            <p className="mb-1 text-[10px] font-medium text-stone-400">비슷한 글</p>
+            <ul className="space-y-1">
+              {info.similarBooks.map(({ title, score }) => (
+                <li key={title} className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[11px] text-stone-600">{title}</span>
+                  <span className="shrink-0 text-[10px] tabular-nums text-stone-400">
+                    {Math.round(score * 100)}%
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -594,7 +736,7 @@ function ThreeCanvas({ books, onTooltip }: Props) {
       if (ud?.url) {
         renderer.domElement.style.cursor = 'pointer'
         onTooltip({
-          info: { title: ud.title, thumbnail: ud.thumbnail, date: ud.date },
+          info: { title: ud.title, thumbnail: ud.thumbnail, date: ud.date, topTerms: ud.topTerms ?? [], similarBooks: ud.similarBooks ?? [] },
           x: e.clientX,
           y: e.clientY,
         })
