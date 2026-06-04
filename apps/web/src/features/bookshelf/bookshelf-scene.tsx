@@ -6,6 +6,7 @@ import { InsightPanel } from '../insights/insight-panel'
 import { ShareButton, SharedBadge } from '../share/share-button'
 import { ActivityHeatmap } from '../streak/activity-heatmap'
 import { useBookshelfBooks } from './model/use-bookshelf-books'
+import { usePreloadThumbnails } from './model/use-preload-thumbnails'
 import { BookTooltip, type TooltipState } from './ui/book-tooltip'
 import { ThreeCanvas } from './ui/three-canvas'
 
@@ -18,6 +19,8 @@ export function BookshelfScene({ dbId, readOnly = false }: Props = {}) {
   const effectiveDbId = dbId ?? getDefaultDbId()
   const { data: books, isLoading, isError } = useBookshelfBooks(effectiveDbId)
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+
+  usePreloadThumbnails(books)
 
   if (isLoading) {
     return (
