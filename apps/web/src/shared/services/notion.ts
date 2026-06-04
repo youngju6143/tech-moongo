@@ -1,3 +1,5 @@
+import { apiUrl } from '@/shared/lib/api'
+
 const DEFAULT_DB_ID = import.meta.env.VITE_NOTION_DATABASE_ID as string
 
 export function getDefaultDbId(): string {
@@ -75,7 +77,7 @@ async function fetchPage(dbId: string, startCursor?: string): Promise<NotionQuer
   }
   if (startCursor) body.start_cursor = startCursor
 
-  const res = await fetch(`/api/notion/databases/${dbId}/query`, {
+  const res = await fetch(apiUrl(`/api/notion/databases/${dbId}/query`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -92,7 +94,7 @@ async function fetchPage(dbId: string, startCursor?: string): Promise<NotionQuer
 async function fetchPageContent(
   pageId: string,
 ): Promise<{ contentLength: number; codeBlockCount: number; keywordCount: number }> {
-  const res = await fetch(`/api/notion/pages/${pageId}/content`)
+  const res = await fetch(apiUrl(`/api/notion/pages/${pageId}/content`))
   if (!res.ok) return { contentLength: 0, codeBlockCount: 0, keywordCount: 0 }
 
   const data = await res.json()
@@ -116,7 +118,7 @@ export async function fetchBookSimilarity(
 ): Promise<SimilarityData | null> {
   if (books.length < 2) return null
   try {
-    const res = await fetch('/api/tfidf/analyze-books', {
+    const res = await fetch(apiUrl('/api/tfidf/analyze-books'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ books }),

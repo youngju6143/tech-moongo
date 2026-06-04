@@ -1,0 +1,15 @@
+# Render 블루프린트: 이 파일을 git에 커밋한 뒤 https://dashboard.render.com/blueprints 에서
+# "New Blueprint Instance" → 이 레포 선택하면 자동으로 서비스가 생성됨.
+services:
+  - type: web
+    name: tech-moongo-api
+    runtime: docker
+    rootDir: apps/api
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NOTION_TOKEN
+        sync: false # Render 대시보드에서 직접 입력
+      - key: ALLOWED_ORIGINS
+        sync: false # 예: https://tech-moongo.vercel.app

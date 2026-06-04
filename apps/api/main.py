@@ -16,11 +16,16 @@ NOTION_TOKEN = os.getenv("NOTION_TOKEN", "")
 NOTION_VERSION = "2022-06-28"
 NOTION_BASE = "https://api.notion.com/v1"
 
+# 프로덕션에서는 ALLOWED_ORIGINS=https://your-app.vercel.app,https://your-app.com
+# 콤마로 여러 개 지정 가능. 미지정 시 로컬 dev 서버만 허용.
+_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
+ALLOWED_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()]
+
 app = FastAPI(title="tech-moongo API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
