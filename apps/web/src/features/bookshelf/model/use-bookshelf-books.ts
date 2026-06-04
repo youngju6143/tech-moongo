@@ -74,11 +74,11 @@ export interface VisualBook extends BookEntry {
 
 const MAX_PER_SHELF = 20
 
-export function useBookshelfBooks() {
+export function useBookshelfBooks(dbId?: string) {
   return useQuery({
-    queryKey: ['bookshelf-books'],
+    queryKey: ['bookshelf-books', dbId ?? 'default'],
     queryFn: async (): Promise<VisualBook[]> => {
-      const entries = await fetchPublicBooks()
+      const entries = await fetchPublicBooks(dbId)
       if (entries.length === 0) return []
 
       // ── TF-IDF 유사도 분석 (백엔드에서 Kiwi 형태소 분석 + 코사인 유사도 계산) ──

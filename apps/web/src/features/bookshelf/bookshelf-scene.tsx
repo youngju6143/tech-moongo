@@ -1,12 +1,21 @@
 import { useState } from 'react'
 
+import { getDefaultDbId } from '@/shared/services/notion'
+
+import { ShareButton, SharedBadge } from '../share/share-button'
 import { ActivityHeatmap } from '../streak/activity-heatmap'
 import { useBookshelfBooks } from './model/use-bookshelf-books'
 import { BookTooltip, type TooltipState } from './ui/book-tooltip'
 import { ThreeCanvas } from './ui/three-canvas'
 
-export function BookshelfScene() {
-  const { data: books, isLoading, isError } = useBookshelfBooks()
+interface Props {
+  dbId?: string       // /share/:dbId 라우트에서 주입; 없으면 env 기본값 사용
+  readOnly?: boolean  // 공유 보기 모드 (공유 버튼 대신 배지 표시)
+}
+
+export function BookshelfScene({ dbId, readOnly = false }: Props = {}) {
+  const effectiveDbId = dbId ?? getDefaultDbId()
+  const { data: books, isLoading, isError } = useBookshelfBooks(effectiveDbId)
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
 
   if (isLoading) {
@@ -40,6 +49,7 @@ export function BookshelfScene() {
     <div className="h-screen w-full">
       <ThreeCanvas books={books} onTooltip={setTooltip} />
       {tooltip && <BookTooltip tooltip={tooltip} />}
+      {readOnly ? <SharedBadge /> : <ShareButton dbId={effectiveDbId} />}
       <ActivityHeatmap books={books} />
     </div>
   )

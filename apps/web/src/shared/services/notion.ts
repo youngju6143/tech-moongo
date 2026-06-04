@@ -1,4 +1,8 @@
-const DB_ID = import.meta.env.VITE_NOTION_DATABASE_ID as string
+const DEFAULT_DB_ID = import.meta.env.VITE_NOTION_DATABASE_ID as string
+
+export function getDefaultDbId(): string {
+  return DEFAULT_DB_ID
+}
 
 // ── Raw Notion API types (minimal subset we use) ──────────────────────────────
 interface NotionSelectProp {
@@ -60,7 +64,7 @@ export interface BookEntry {
 }
 
 // ── Fetch all public pages via backend proxy (auto-paginates) ─────────────────
-async function fetchPage(startCursor?: string): Promise<NotionQueryResponse> {
+async function fetchPage(dbId: string, startCursor?: string): Promise<NotionQueryResponse> {
   const body: Record<string, unknown> = {
     filter: {
       property: 'status',
@@ -71,7 +75,7 @@ async function fetchPage(startCursor?: string): Promise<NotionQueryResponse> {
   }
   if (startCursor) body.start_cursor = startCursor
 
-  const res = await fetch(`/api/notion/databases/${DB_ID}/query`, {
+  const res = await fetch(`/api/notion/databases/${dbId}/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -130,12 +134,14 @@ export async function fetchBookSimilarity(
   }
 }
 
-export async function fetchPublicBooks(): Promise<BookEntry[]> {
+export async function fetchPublicBooks(dbId: string = DEFAULT_DB_ID): Promise<BookEntry[]> {
+  if (!dbId) throw new Error('Notion database ID가 없습니다.')
+
   const pages: NotionPage[] = []
   let cursor: string | undefined = undefined
 
   do {
-    const data = await fetchPage(cursor)
+    const data = await fetchPage(dbId, cursor)
     pages.push(...data.results)
     cursor = data.has_more && data.next_cursor ? data.next_cursor : undefined
   } while (cursor)
