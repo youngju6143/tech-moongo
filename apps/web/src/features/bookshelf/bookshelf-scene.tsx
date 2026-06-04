@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { getDefaultDbId } from '@/shared/services/notion'
 
+import { InsightPanel } from '../insights/insight-panel'
 import { ShareButton, SharedBadge } from '../share/share-button'
 import { ActivityHeatmap } from '../streak/activity-heatmap'
 import { useBookshelfBooks } from './model/use-bookshelf-books'
@@ -51,6 +52,7 @@ export function BookshelfScene({ dbId, readOnly = false }: Props = {}) {
       {tooltip && <BookTooltip tooltip={tooltip} />}
       {readOnly ? <SharedBadge /> : <ShareButton dbId={effectiveDbId} />}
       <ActivityHeatmap books={books} />
+      <InsightPanel books={books} />
     </div>
   )
 }
