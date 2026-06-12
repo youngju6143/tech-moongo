@@ -2,9 +2,9 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useState } from 'react'
 
 import type { VisualBook } from '../bookshelf/model/use-bookshelf-books'
-import { type ThemeName } from './config/constants'
 import { buildYearSections } from './model/build-year-sections'
 import { longestDayStreak, thisMonthCount } from './model/stats'
+import { useStreakSettings } from './model/use-streak-settings'
 import { HeatmapGrid } from './ui/heatmap-grid'
 import { HeatmapLegend } from './ui/heatmap-legend'
 import { StreakStats } from './ui/streak-stats'
@@ -13,8 +13,7 @@ import { YearTabs } from './ui/year-tabs'
 
 export function ActivityHeatmap({ books }: { books: VisualBook[] }) {
   const [open, setOpen] = useState(false)
-  const [theme, setTheme] = useState<ThemeName>('블루')
-  const [selectedYear, setSelectedYear] = useState<number | null>(null)
+  const { theme, setTheme, selectedYear, setSelectedYear } = useStreakSettings()
 
   const countByDate = new Map<string, number>()
   const booksByDate = new Map<string, VisualBook[]>()
