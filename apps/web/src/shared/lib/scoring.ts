@@ -13,11 +13,12 @@ export function computeLengthScores(contentLengths: number[]): number[] {
 }
 
 // ── (2) DepthScore — code block weight + keyword weight, then normalized ──────
-// data_analysis.md §2-(2): DepthScore = CodeCount×0.6 + KeywordCount×0.4
+// 설문(n=49) 기반 재조정: DepthScore = CodeCount×0.4 + KeywordCount×0.6
+// (대응표본 t-검정 t(48)=-4.000, p<.0001 — 키워드 중요도가 유의하게 높음)
 export function computeDepthScores(
   books: Array<{ codeBlockCount: number; keywordCount: number; contentLength: number }>
 ): number[] {
-  const rawScores = books.map((b) => b.codeBlockCount * 0.6 + b.keywordCount * 0.4)
+  const rawScores = books.map((b) => b.codeBlockCount * 0.4 + b.keywordCount * 0.6)
   const min = Math.min(...rawScores)
   const max = Math.max(...rawScores)
   if (max === min) {
@@ -71,14 +72,36 @@ export function computeActivityScores(books: Array<{ date: string }>): number[] 
   return minMaxNormalize(rawScores)
 }
 
+// ── (4) OriginalityScore — block type distribution as authenticity proxy ─────
+// 설문 자유 응답 주제별 빈도 기반 가중치:
+//   Originality = 0.4·Image + 0.3·(Callout+Toggle) + 0.3·(Quote+Bookmark)
+export function computeOriginalityScores(
+  books: Array<{
+    imageCount: number
+    calloutCount: number
+    toggleCount: number
+    quoteCount: number
+    bookmarkCount: number
+  }>
+): number[] {
+  const rawScores = books.map(
+    (b) =>
+      b.imageCount * 0.4 +
+      (b.calloutCount + b.toggleCount) * 0.3 +
+      (b.quoteCount + b.bookmarkCount) * 0.3
+  )
+  return minMaxNormalize(rawScores)
+}
+
 // ── Total Score ───────────────────────────────────────────────────────────────
-// data_analysis.md §3: TotalScore = Length×0.3 + Depth×0.3 + Activity×0.2
+// TotalScore = Length×0.3 + Depth×0.3 + Activity×0.2 + Originality×0.2
 export function computeTotalScore(
   lengthScore: number,
   depthScore: number,
-  activityScore: number
+  activityScore: number,
+  originalityScore: number
 ): number {
-  return lengthScore * 0.3 + depthScore * 0.3 + activityScore * 0.2
+  return lengthScore * 0.3 + depthScore * 0.3 + activityScore * 0.2 + originalityScore * 0.2
 }
 
 // ── Design mapping helpers ────────────────────────────────────────────────────
@@ -93,4 +116,9 @@ export function depthToPattern(depthScore: number): 'plain' | 'bordered' | 'stri
 // data_analysis.md §4: 두께 ← LengthScore (0.08–0.22 world units)
 export function lengthToThickness(lengthScore: number): number {
   return 0.08 + lengthScore * 0.14
+}
+
+// 표면 거칠기 ← OriginalityScore (roughness 0.1–0.9, 높을수록 거친 엠보싱 질감)
+export function originalityToRoughness(originalityScore: number): number {
+  return 0.1 + originalityScore * 0.8
 }

@@ -140,10 +140,14 @@ async def notion_database_query(database_id: str, request: Request) -> dict:
     return res.json()
 
 
-async def _fetch_page_text(client: httpx.AsyncClient, page_id: str) -> tuple[str, int]:
-    """Notion 페이지 블록에서 텍스트와 코드블록 수를 추출한다."""
+# 독창성 점수 프록시로 사용하는 블록 타입 (설문 자유 응답 주제 → 블록 매핑)
+ORIGINALITY_BLOCK_TYPES = {"image", "callout", "toggle", "quote", "bookmark"}
+
+
+async def _fetch_page_text(client: httpx.AsyncClient, page_id: str) -> tuple[str, dict]:
+    """Notion 페이지 블록에서 텍스트와 블록 타입별 카운트를 추출한다."""
     text_parts: list[str] = []
-    code_count = 0
+    block_counts: dict[str, int] = {"code": 0} | {t: 0 for t in ORIGINALITY_BLOCK_TYPES}
     cursor: str | None = None
 
     while True:
@@ -162,8 +166,8 @@ async def _fetch_page_text(client: httpx.AsyncClient, page_id: str) -> tuple[str
         data = res.json()
         for block in data.get("results", []):
             btype = block.get("type", "")
-            if btype == "code":
-                code_count += 1
+            if btype in block_counts:
+                block_counts[btype] += 1
             if btype in TEXT_BLOCK_TYPES:
                 rich_text = block.get(btype, {}).get("rich_text", [])
                 text_parts.append("".join(r.get("plain_text", "") for r in rich_text))
@@ -173,24 +177,35 @@ async def _fetch_page_text(client: httpx.AsyncClient, page_id: str) -> tuple[str
         else:
             break
 
-    return "".join(text_parts), code_count
+    return "".join(text_parts), block_counts
 
 
 class PageContentResponse(BaseModel):
     content_length: int
     code_block_count: int
     keyword_count: int
+    # 독창성 점수(OriginalityScore) 산출용 블록 타입 분포
+    image_count: int
+    callout_count: int
+    toggle_count: int
+    quote_count: int
+    bookmark_count: int
 
 
 @app.get("/api/notion/pages/{page_id}/content", response_model=PageContentResponse)
 async def notion_page_content(page_id: str) -> PageContentResponse:
     async with httpx.AsyncClient() as client:
-        full_text, code_count = await _fetch_page_text(client, page_id)
+        full_text, counts = await _fetch_page_text(client, page_id)
 
     return PageContentResponse(
         content_length=len(full_text),
-        code_block_count=code_count,
+        code_block_count=counts["code"],
         keyword_count=count_it_keywords(full_text),
+        image_count=counts["image"],
+        callout_count=counts["callout"],
+        toggle_count=counts["toggle"],
+        quote_count=counts["quote"],
+        bookmark_count=counts["bookmark"],
     )
 
 

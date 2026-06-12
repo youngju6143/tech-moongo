@@ -1,11 +1,13 @@
 export type BookPattern = 'plain' | 'bordered' | 'striped' | 'embossed'
 
-// pattern → 재질 속성 (전문성 높을수록 광택)
-export const PATTERN_MAT: Record<BookPattern, { roughness: number; metalness: number }> = {
-  plain:    { roughness: 0.72, metalness: 0.04 },
-  bordered: { roughness: 0.55, metalness: 0.10 },
-  striped:  { roughness: 0.40, metalness: 0.18 },
-  embossed: { roughness: 0.22, metalness: 0.35 },
+// pattern → 금속성 (전문성 높을수록 광택)
+// 환경맵이 없는 씬에서 metalness가 높으면 반사 대상이 없어 책이 어둡게 보이므로 0.15 이하로 제한
+// (표면 거칠기(roughness)는 독창성 점수가 별도로 결정 — scoring.ts originalityToRoughness)
+export const PATTERN_MAT: Record<BookPattern, { metalness: number }> = {
+  plain:    { metalness: 0.02 },
+  bordered: { metalness: 0.06 },
+  striped:  { metalness: 0.10 },
+  embossed: { metalness: 0.15 },
 }
 
 function hexToRgb(hex: string): [number, number, number] {

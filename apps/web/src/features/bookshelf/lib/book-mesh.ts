@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 
+import { originalityToRoughness } from '@/shared/lib/scoring'
+
 import type { VisualBook } from '../model/use-bookshelf-books'
 
 import { PATTERN_MAT, drawPatternOverlay, type BookPattern } from './book-pattern'
@@ -75,9 +77,14 @@ export function createBookMesh(
   const backTex = makeBookFaceTex(cover.back, color, coverW, coverH, pattern)
   const spineTex = makeBookFaceTex(cover.spine, color, spineW, spineH, pattern)
 
-  const { roughness, metalness } = PATTERN_MAT[pattern]
+  // 표면 거칠기 ← 독창성 점수 (높을수록 거친 엠보싱 질감), 금속성 ← 전문성 패턴
+  const { metalness } = PATTERN_MAT[pattern]
+  const roughness = originalityToRoughness(book.originalityScore)
+  // 발광 ← 활동성 점수: 최근·연속 작성 글일수록 책 고유색으로 은은하게 빛남 (Bertin 'attention' 신호)
+  const emissive = new THREE.Color(color)
+  const emissiveIntensity = book.activityScore * 0.3
   const coverMat = (tex: THREE.Texture) =>
-    new THREE.MeshStandardMaterial({ map: tex, roughness, metalness })
+    new THREE.MeshStandardMaterial({ map: tex, roughness, metalness, emissive, emissiveIntensity })
 
   const materials: THREE.Material[] = [
     coverMat(frontTex), // +X 앞 표지
@@ -97,6 +104,9 @@ export function createBookMesh(
     title: book.title,
     thumbnail: book.thumbnail,
     date: book.date,
+    category: book.category,
+    categoryColor: color,
+    totalScore: book.totalScore,
     topTerms: book.topTerms,
     similarBooks: book.similarBooks,
   }

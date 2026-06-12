@@ -67,7 +67,7 @@ function setupLights(scene: THREE.Scene, totalWidth: number) {
 
   const sun = new THREE.DirectionalLight(0xffffff, 1.2)
   sun.position.set(6, 4.5, 5)
-  sun.castShadow = false
+  sun.castShadow = true
   sun.shadow.mapSize.set(2048, 2048)
   sun.shadow.camera.left = -(totalWidth / 2 + 3)
   sun.shadow.camera.right = totalWidth / 2 + 3
@@ -235,6 +235,9 @@ export function ThreeCanvas({ books, onTooltip }: Props) {
             title: ud.title,
             thumbnail: ud.thumbnail,
             date: ud.date,
+            category: ud.category ?? '',
+            categoryColor: ud.categoryColor ?? '#888888',
+            totalScore: ud.totalScore ?? 0,
             topTerms: ud.topTerms ?? [],
             similarBooks: ud.similarBooks ?? [],
           },

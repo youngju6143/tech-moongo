@@ -63,6 +63,12 @@ export interface BookEntry {
   contentLength: number
   codeBlockCount: number
   keywordCount: number
+  // 독창성 점수(OriginalityScore) 산출용 블록 타입 분포
+  imageCount: number
+  calloutCount: number
+  toggleCount: number
+  quoteCount: number
+  bookmarkCount: number
 }
 
 // ── Fetch all public pages via backend proxy (auto-paginates) ─────────────────
@@ -91,17 +97,42 @@ async function fetchPage(dbId: string, startCursor?: string): Promise<NotionQuer
 }
 
 // ── Fetch page content signals via backend (parsing + TTA keyword count) ─────
-async function fetchPageContent(
-  pageId: string,
-): Promise<{ contentLength: number; codeBlockCount: number; keywordCount: number }> {
+interface PageContentSignals {
+  contentLength: number
+  codeBlockCount: number
+  keywordCount: number
+  imageCount: number
+  calloutCount: number
+  toggleCount: number
+  quoteCount: number
+  bookmarkCount: number
+}
+
+const EMPTY_CONTENT: PageContentSignals = {
+  contentLength: 0,
+  codeBlockCount: 0,
+  keywordCount: 0,
+  imageCount: 0,
+  calloutCount: 0,
+  toggleCount: 0,
+  quoteCount: 0,
+  bookmarkCount: 0,
+}
+
+async function fetchPageContent(pageId: string): Promise<PageContentSignals> {
   const res = await fetch(apiUrl(`/api/notion/pages/${pageId}/content`))
-  if (!res.ok) return { contentLength: 0, codeBlockCount: 0, keywordCount: 0 }
+  if (!res.ok) return EMPTY_CONTENT
 
   const data = await res.json()
   return {
     contentLength: data.content_length,
     codeBlockCount: data.code_block_count,
     keywordCount: data.keyword_count,
+    imageCount: data.image_count ?? 0,
+    calloutCount: data.callout_count ?? 0,
+    toggleCount: data.toggle_count ?? 0,
+    quoteCount: data.quote_count ?? 0,
+    bookmarkCount: data.bookmark_count ?? 0,
   }
 }
 
@@ -164,10 +195,7 @@ export async function fetchPublicBooks(dbId: string = DEFAULT_DB_ID): Promise<Bo
         : thumbFile.file.url
       : null
 
-    const content =
-      contentResults[i].status === 'fulfilled'
-        ? contentResults[i].value
-        : { contentLength: 0, codeBlockCount: 0, keywordCount: 0 }
+    const content = contentResults[i].status === 'fulfilled' ? contentResults[i].value : EMPTY_CONTENT
 
     return {
       id: p.id,
@@ -182,6 +210,11 @@ export async function fetchPublicBooks(dbId: string = DEFAULT_DB_ID): Promise<Bo
       contentLength: content.contentLength,
       codeBlockCount: content.codeBlockCount,
       keywordCount: content.keywordCount,
+      imageCount: content.imageCount,
+      calloutCount: content.calloutCount,
+      toggleCount: content.toggleCount,
+      quoteCount: content.quoteCount,
+      bookmarkCount: content.bookmarkCount,
     }
   })
 }

@@ -4,6 +4,7 @@ import {
   computeActivityScores,
   computeDepthScores,
   computeLengthScores,
+  computeOriginalityScores,
   computeTotalScore,
   depthToPattern,
   lengthToThickness,
@@ -65,6 +66,7 @@ export interface VisualBook extends BookEntry {
   lengthScore: number
   depthScore: number
   activityScore: number
+  originalityScore: number
   totalScore: number
   // TF-IDF 기반 유사도 분석 결과
   topTerms: string[]       // 이 글의 대표 키워드 (TF-IDF 상위 5개)
@@ -113,6 +115,7 @@ export function useBookshelfBooks(dbId?: string) {
       const lengthScores = computeLengthScores(entries.map((e) => e.contentLength))
       const depthScores = computeDepthScores(entries)
       const activityScores = computeActivityScores(entries)
+      const originalityScores = computeOriginalityScores(entries)
 
       // Depth tiers by rank ensure visible specialization differences.
       const depthRanked = depthScores
@@ -149,6 +152,7 @@ export function useBookshelfBooks(dbId?: string) {
           const lScore = lengthScores[idx]
           const dScore = depthScores[idx]
           const aScore = activityScores[idx]
+          const oScore = originalityScores[idx]
 
           result.push({
             ...e,
@@ -162,7 +166,8 @@ export function useBookshelfBooks(dbId?: string) {
             lengthScore: lScore,
             depthScore: dScore,
             activityScore: aScore,
-            totalScore: computeTotalScore(lScore, dScore, aScore),
+            originalityScore: oScore,
+            totalScore: computeTotalScore(lScore, dScore, aScore, oScore),
             topTerms: similarity?.topTerms[e.id] ?? [],
             clusterIndex: clusterMap.get(e.id) ?? -1,
             similarBooks: similarBooksMap.get(e.id) ?? [],
