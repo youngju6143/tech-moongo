@@ -80,4 +80,39 @@ $$TotalScore = (Length \times 0.3) + (Depth \times 0.3) + (Activity \times 0.2) 
 - **Frontend (`apps/web`):** React + TypeScript + Vite 기반. Three.js로 3D 서재를 렌더링하고, TanStack Query로 서버 상태를, Zustand로 전역 UI 상태를 관리한다.
 - **Backend (`apps/api`):** FastAPI(Python) 기반. Notion API 프록시(토큰을 서버에만 보관), kiwipiepy 기반 한국어 키워드 추출, scikit-learn 기반 TF-IDF 벡터화 및 코사인 유사도 분석을 담당한다.
 
-**데이터 흐름:** `Notion DB → (백엔드 프록시) 본문·메타데이터 수집 → 점수 산출(정보량·전문성·활동성·독창성) → TF-IDF 유사도 분석 → 3D 디자인 요소 매핑 → Three.js 렌더링`
+### 6.1 아키텍처 다이어그램
+
+```mermaid
+flowchart LR
+    subgraph User["사용자"]
+        B["🌐 브라우저"]
+    end
+
+    subgraph Web["apps/web · Frontend (React + Vite)"]
+        TQ["TanStack Query<br/>(데이터 페칭/캐싱)"]
+        SC["점수 산출 · 3D 매핑<br/>(정보량·전문성·활동성·독창성)"]
+        TJS["🧊 Three.js 3D 서재 렌더링"]
+        ZU["Zustand (전역 UI 상태)"]
+    end
+
+    subgraph Api["apps/api · Backend (FastAPI)"]
+        PX["🔐 Notion 프록시<br/>(토큰 서버 보관)"]
+        KW["kiwipiepy + TTA 사전<br/>키워드 추출"]
+        TF["scikit-learn<br/>TF-IDF · 코사인 유사도"]
+    end
+
+    NOTION[("📚 Notion DB")]
+
+    B --> TJS
+    TJS --> SC --> TQ
+    TQ -->|HTTP| PX
+    TQ -->|HTTP| TF
+    PX --> NOTION
+    PX --> KW
+    TF --> PX
+    SC -.-> ZU
+```
+
+### 6.2 데이터 흐름
+
+`Notion DB → (백엔드 프록시) 본문·메타데이터 수집 → 점수 산출(정보량·전문성·활동성·독창성) → TF-IDF 유사도 분석 → 3D 디자인 요소 매핑 → Three.js 렌더링`
