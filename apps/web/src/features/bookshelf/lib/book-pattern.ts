@@ -22,13 +22,57 @@ function accentColor(baseHex: string): string {
   return brightness < 100 ? 'rgba(220,190,120,0.72)' : 'rgba(255,215,100,0.6)'
 }
 
+// 독창성 점수 → canvas 표면 그레인 (0: 매끄러움, 1: 거친 크로스해칭)
+// 독창성 점수 → 표면 거칠기 (score 0~1, 높을수록 촘촘한 크로스해칭)
+// 랜덤 노이즈 대신 규칙적 사선 패턴 사용 — 텍스처 다운스케일에도 선명하게 유지
+function drawGrain(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  originalityScore: number,
+): void {
+  // score 0.05 미만은 '매끄러움' 표현 — 아무것도 그리지 않음
+  if (originalityScore < 0.05) return
+
+  // gap: 40(듬성) → 8(촘촘), alpha: 0.25 → 0.55
+  const gap   = Math.round(40 - originalityScore * 32) // 40 ~ 8
+  const alpha = 0.25 + originalityScore * 0.3          // 0.25 ~ 0.55
+  const lineW = 1.5 + originalityScore * 2             // 1.5 ~ 3.5
+
+  ctx.save()
+  ctx.strokeStyle = `rgba(0,0,0,${alpha})`
+  ctx.lineWidth = lineW
+
+  // 45° 사선 (항상)
+  ctx.beginPath()
+  for (let i = -h; i < w + h; i += gap) {
+    ctx.moveTo(i, 0)
+    ctx.lineTo(i + h, h)
+  }
+  ctx.stroke()
+
+  // score 0.5 이상: 역방향(-45°) 추가 → 격자 크로스해칭
+  if (originalityScore >= 0.5) {
+    ctx.beginPath()
+    for (let i = -h; i < w + h; i += gap) {
+      ctx.moveTo(i + h, 0)
+      ctx.lineTo(i, h)
+    }
+    ctx.stroke()
+  }
+
+  ctx.restore()
+}
+
 export function drawPatternOverlay(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
   pattern: BookPattern,
   baseColor: string,
+  originalityScore = 0,
 ): void {
+  drawGrain(ctx, w, h, originalityScore)
   if (pattern === 'plain') return
 
   const accent = accentColor(baseColor)

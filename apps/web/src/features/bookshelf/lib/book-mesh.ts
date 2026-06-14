@@ -15,6 +15,7 @@ function makeBookFaceTex(
   canvasW: number,
   canvasH: number,
   pattern: BookPattern,
+  originalityScore: number,
 ): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = canvasW
@@ -23,7 +24,7 @@ function makeBookFaceTex(
   ctx.fillStyle = bgColor
   ctx.fillRect(0, 0, canvasW, canvasH)
   if (img.naturalWidth > 0) ctx.drawImage(img, 0, 0, canvasW, canvasH)
-  drawPatternOverlay(ctx, canvasW, canvasH, pattern, bgColor)
+  drawPatternOverlay(ctx, canvasW, canvasH, pattern, bgColor, originalityScore)
   return withQuality(new THREE.CanvasTexture(canvas))
 }
 
@@ -73,9 +74,10 @@ export function createBookMesh(
   const spineW = Math.round(coverH * (thickness / height))
   const spineH = coverH
 
-  const frontTex = makeBookFaceTex(cover.front, color, coverW, coverH, pattern)
-  const backTex = makeBookFaceTex(cover.back, color, coverW, coverH, pattern)
-  const spineTex = makeBookFaceTex(cover.spine, color, spineW, spineH, pattern)
+  const { originalityScore } = book
+  const frontTex = makeBookFaceTex(cover.front, color, coverW, coverH, pattern, originalityScore)
+  const backTex = makeBookFaceTex(cover.back, color, coverW, coverH, pattern, originalityScore)
+  const spineTex = makeBookFaceTex(cover.spine, color, spineW, spineH, pattern, originalityScore)
 
   // 표면 거칠기 ← 독창성 점수 (높을수록 거친 엠보싱 질감), 금속성 ← 전문성 패턴
   const { metalness } = PATTERN_MAT[pattern]
