@@ -73,22 +73,20 @@ export function computeActivityScores(books: Array<{ date: string }>): number[] 
 }
 
 // ── (4) OriginalityScore — block type distribution as authenticity proxy ─────
-// 설문 자유 응답 주제별 빈도 기반 가중치:
-//   Originality = 0.4·Image + 0.3·(Callout+Toggle) + 0.3·(Quote+Bookmark)
+// 이미지·콜아웃·인용 블록 분포를 독창성 프록시로 사용:
+//   Originality = 0.4·Image + 0.3·Callout + 0.3·Quote
 export function computeOriginalityScores(
   books: Array<{
     imageCount: number
     calloutCount: number
-    toggleCount: number
     quoteCount: number
-    bookmarkCount: number
   }>
 ): number[] {
   const rawScores = books.map(
     (b) =>
       b.imageCount * 0.4 +
-      (b.calloutCount + b.toggleCount) * 0.3 +
-      (b.quoteCount + b.bookmarkCount) * 0.3
+      b.calloutCount * 0.3 +
+      b.quoteCount * 0.3
   )
   return minMaxNormalize(rawScores)
 }
